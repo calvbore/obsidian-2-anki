@@ -10,9 +10,13 @@ import { FileData } from './interfaces/settings-interface'
 
 const TAG_PREFIX:string = "Tags: "
 export const TAG_SEP:string = " "
+export function parseTagString(raw: string): string[] {
+    return raw.split(TAG_SEP).map(t => t.replace(/^#+/, ''))
+}
+
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
 export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
-const OBS_TAG_REGEXP: RegExp = /#(\w+)/g
+const OBS_TAG_REGEXP: RegExp = /#([\w-]+)/g
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
 export const CLOZE_ERROR: number = 42
@@ -128,7 +132,7 @@ export class Note extends AbstractNote {
 
     getTags(): string[] {
         if (this.split_text[this.split_text.length-1].startsWith(TAG_PREFIX)) {
-            return this.split_text.pop().slice(TAG_PREFIX.length).split(TAG_SEP)
+            return parseTagString(this.split_text.pop().slice(TAG_PREFIX.length))
         } else {
             return []
         }
@@ -195,7 +199,7 @@ export class InlineNote extends AbstractNote {
         const result = this.text.match(InlineNote.TAG_REGEXP)
         if (result) {
             this.text = this.text.slice(0, result.index).trim()
-            return result[1].split(TAG_SEP)
+            return parseTagString(result[1])
         } else {
             return []
         }
@@ -259,7 +263,7 @@ export class RegexNote {
 		this.match = match
 		this.note_type = note_type
 		this.identifier = id ? parseInt(this.match.pop()) : null
-		this.tags = tags ? this.match.pop().slice(TAG_PREFIX.length).split(TAG_SEP) : []
+		this.tags = tags ? parseTagString(this.match.pop().slice(TAG_PREFIX.length)) : []
 		this.field_names = fields_dict[note_type]
 		this.curly_cloze = curly_cloze
 		this.formatter = formatter
