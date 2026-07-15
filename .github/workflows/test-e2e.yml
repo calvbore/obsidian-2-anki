@@ -32,6 +32,8 @@ jobs:
           npm ci
       - run: npm run build --if-present
       
+      - name: Install uv
+        run: sudo pip install uv
       - name: Run Tests
         run: | 
           # npm run test
@@ -243,6 +245,8 @@ jobs:
       - run: npm run build --if-present
       # - run: npm test
       
+      - name: Install uv
+        run: sudo pip install uv
       - name: Run Tests
         run: | 
           # npm run test
