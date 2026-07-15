@@ -1,10 +1,8 @@
 
 import re
-import pytest
 from anki.errors import NotFoundError  # noqa
 from anki.collection import Collection
 from anki.collection import SearchNode
-# from conftest import col
 
 test_name = 'folder_scan'
 col_path = 'tests/test_outputs/{}/Anki2/User 1/collection.anki2'.format(test_name)
@@ -18,12 +16,6 @@ test_file_no_cards_paths = [
     'tests/test_outputs/{}/Obsidian/{}/should_not_scan_dir/should_not_scan.md'.format(test_name, test_name),
     'tests/test_outputs/{}/Obsidian/{}/{}.md'.format(test_name, test_name, test_name),
 ]
-
-@pytest.fixture()
-def col():
-    col = Collection(col_path)
-    yield col
-    col.close()
 
 def test_col_exists(col):
     assert not col.is_empty()
@@ -88,7 +80,6 @@ def test_cards_front_back_tag_type(col: Collection):
     note4 = col.get_note(anki_IDs[3])
     assert note4.fields[0] == "Subheading 3 Subdir"
     assert note4.fields[1] == "It'll even<br />\nSpan over<br />\nMultiple lines, and ignore preceding whitespace"
-
 
     note5 = col.get_note(anki_IDs[4])
     assert note5.fields[0] == "Style"

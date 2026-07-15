@@ -1,0 +1,2 @@
+[dependency-groups]
+test = ["pytest>=9", "anki>=26"]
