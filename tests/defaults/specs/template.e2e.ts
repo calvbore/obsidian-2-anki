@@ -6,6 +6,7 @@ import { browser } from '@wdio/globals';
 const fse = require('fs-extra');
 const path = require('path');
 const assert = require('assert');
+const { execSync } = require('child_process');
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 
 const test_name_fmt = test_name.split('_').reduce((acc,s) => { return acc + ' ' + s.charAt(0).toUpperCase() + s.slice(1)}) + " Test"
@@ -30,6 +31,14 @@ describe(test_name_fmt, () => {
                 await delay(100);
             }
             await delay(5000);
+
+            // Fix permissions from previous Docker container runs
+            try {
+                execSync(
+                    `docker run --rm -v "${path.resolve(__dirname, '../../tests')}:/tests" alpine chown -R 1000:1000 /tests/test_vault /tests/test_config 2>/dev/null`,
+                    { stdio: 'pipe', timeout: 30000 }
+                );
+            } catch (_) { /* cleanup is best-effort */ }
 
             fse.copySync(`tests/defaults/test_vault`, `tests/test_vault`, { overwrite: true });
             if (fse.pathExistsSync('tests/test_vault'))
@@ -58,6 +67,7 @@ describe(test_name_fmt, () => {
         // const TrustButton = await $('button*=Trust')
         // await expect(TrustButton).toExist()
         await delay(2000); // even for reset perms
+        await browser.reloadSession(); // Fresh session for restarted Obsidian
         await browser.execute( () => { var btn = [...document.querySelectorAll('button')].find(btn => btn.textContent.includes('Trust')); if(btn) btn.click(); } );
         
         await delay(3000);
@@ -127,6 +137,7 @@ describe(test_name_fmt, () => {
         console.log('Synced Obsidian and Anki ... Existing Obisdian');        
         // await browser.debug(); // You can safely Pause for debugging here, else it may create unintended consequences
         await browser.closeWindow();
+        await browser.deleteSession();
         await delay(1000); // esp for PostTest ss of Anki and wait for obsidian teardown
         
         try {

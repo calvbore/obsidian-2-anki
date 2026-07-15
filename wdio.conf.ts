@@ -2,6 +2,7 @@ import type { Options } from '@wdio/types'
 const fs = require('fs')
 const fse = require('fs-extra');
 const path = require('path');
+const { execSync } = require('child_process');
 
 export const config/* : Options.Testrunner */ = {
     //
@@ -33,11 +34,8 @@ export const config/* : Options.Testrunner */ = {
     // will be called from there.
     //
     specs: [
-        // [
-            // './tests/specs_gen/**/*.ts',
-            './tests/specs_gen/**/*.ts',
-            './tests/specs/**/*.ts'
-        // ]
+        './tests/specs_gen/**/*.ts',
+        './tests/specs/**/*.ts'
     ],
     // Patterns to exclude.
     exclude: [
@@ -318,11 +316,14 @@ export const config/* : Options.Testrunner */ = {
         
                     if( stat.isDirectory() ) {
                         console.log( `'%s' is a test_output directory. Moving for further python tests`, fromPath );
-                        fse.move(fromPath, `tests/test_outputs/${file}`, { overwrite: true }, err => {
-                            if (err) {
-                                console.log(`Error on trying to copying test_output of ${file}:`, err);
-                            }
-                        })
+                        try {
+                            fse.copySync(fromPath, `tests/test_outputs/${file}`, { overwrite: true });
+                        } catch (err) {
+                            console.log(`Error on trying to copy test_output of ${file}:`, err);
+                        }
+                        try {
+                            execSync(`docker exec $(docker ps -q --filter ancestor=anki-obsidian) rm -rf /config/.local/share/test_outputs/${file} 2>/dev/null`, { stdio: 'pipe' });
+                        } catch (_) {}
                     }
                 } // End for...of
             }
@@ -330,6 +331,12 @@ export const config/* : Options.Testrunner */ = {
                 console.error( "We've thrown! Whoops!", e );
             }  
         })(); // Wrap in parenthesis and call now
+    },
+    onComplete: function(exitCode, config, capabilities, results) {
+        try {
+            execSync('pkill -f "dockerEvents" 2>/dev/null', { stdio: 'pipe' });
+        } catch (_) {}
+        setTimeout(() => process.exit(exitCode), 30000);
     },
     /**
      * Gets executed just before initialising the webdriver session and test framework. It allows you
