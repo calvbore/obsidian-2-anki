@@ -33,7 +33,7 @@ npm run test
 │       └── onWorkerEnd: copySync test_outputs from container → host
 │
 └── npm run test-py
-    └── pytest -vvvs tests/anki/
+    └── uv run pytest -vvvs tests/anki/ --junitxml logs/test-reports/pytest.xml
         └── each test opens collection.anki2 from test_outputs/<name>/
             ├── test_col_exists
             ├── test_deck_default_exists
@@ -47,7 +47,7 @@ npm run test
 ### 1. Prep (`prepare-wdio.sh`)
 - Creates `tests/test_config/`, `tests/test_vault/`, `tests/specs_gen/`, `tests/test_outputs/`
 - Copies `main.js`, `manifest.json`, `styles.css` into the default vault's plugin directory
-- Runs an alpine container as root to delete any root-owned files from prior runs
+- Runs an alpine container as root to scrub all runtime artifacts (test_vault, test_config, test_outputs, specs_gen) leftover from prior runs
 - Deletes and re-copies from `tests/defaults/` to get clean state
 
 ### 2. Docker image (`Dockerfile`)
@@ -76,9 +76,9 @@ Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
 5. Write `reset_perms` signal file → container sets world-writable
 6. `browser.reloadSession()` — fresh WebDriver session for restarted Obsidian
 7. Trust the plugin (click "Trust" button), dismiss any dialogs
-8. Navigate to suite file, click "Scan Vault"
+8. Find Scan Vault button, reload vault (Ctrl+Shift+R), navigate to suite file, find Scan Vault again, take PreTest screenshot, then click Scan Vault
 9. Poll browser console logs for "All done!" message
-10. Screenshots (PreTest, PostTest, and Error if warnings/errors present)
+10. Screenshots (PostTest, and Error if warnings/errors present)
 11. Close window, delete session
 12. Copy Anki screenshots from container to `logs/<test_name>/`
 
@@ -88,12 +88,12 @@ Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
 - Assert every card got an ID (plugin wrote it back)
 
 **Container teardown** (`onWorkerEnd`): Copies `test_outputs/<name>/` from container to `tests/test_outputs/` via `copySync` + `docker exec rm`. The container's `obsidian_anki.sh` handles:
-1. Screenshots (Anki PostTest, Anki PreTest for next suite)
+1. Renames screenshots taken by `autostart` (Anki PostTest, Anki PreTest for next suite)
 2. Moves Anki collection to `test_outputs/<name>/`
-3. Restores Anki from `Anki2default` backup
+3. Copies fresh Anki profile from `Anki2default` (preserves the pristine backup)
 4. Waits for `unlock` signal (written by spec's second `it` block)
 5. Copies Obsidian vault to `test_outputs/<name>/Obsidian/`
-6. Clears vault, waits for next suite's test files
+6. Clears vault, then re-executes `/defaults/autostart` to begin the next iteration
 
 **Cleanup** (`onComplete`): Kills orphaned `dockerEvents` child process; `process.exit()` after 30s safety net.
 
@@ -101,7 +101,7 @@ Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
 
 Each `test_<name>.py` reads `tests/test_outputs/<name>/Anki2/User 1/collection.anki2` using the actual `anki` library.
 
-**Standard test functions** (every file):
+**Standard test functions** (most files):
 | Function | Purpose |
 |---|---|
 | `test_col_exists(col)` | Verify collection is not empty |
@@ -109,6 +109,10 @@ Each `test_<name>.py` reads `tests/test_outputs/<name>/Anki2/User 1/collection.a
 | `test_cards_count(col)` | Assert correct card/note count |
 | `test_cards_ids_from_obsidian(col)` | Match Anki note IDs to `ID:` comments in Obsidian markdown |
 | `test_cards_front_back_tag_type(col)` | Assert exact field content, tags, and note type |
+
+Exceptions:
+- `test_ignore_setting.py` and `test_folder_scan.py` add a 6th test for files that should produce zero cards
+- `test_ng_delete_sync.py` has only `test_col_exists` (asserts collection is empty — the delete removed everything)
 
 **Conventions:**
 - Module-level `col_path` points to the Anki collection file (string literal or derived via `os.path.basename(__file__)[5:-3]`)
@@ -200,18 +204,18 @@ logs/<test_name>/
 ### Permission model
 - `wdio.conf.ts` passes `PUID`/`PGID` env vars so the container's `abc` user matches the host UID — no stale uid-911 files on bind mounts
 - `reset_perms.sh` runs in a container background loop: on signal (`/config/reset_perms`), runs `chmod -R 777 /vaults /config`
-- `prepare-wdio.sh` runs an alpine container as root before the host `rm -rf` as a safety net for root-owned artifacts
+- `prepare-wdio.sh` runs an alpine container as root before the host `rm -rf` to scrub all runtime artifacts (test_vault, test_config, test_outputs, specs_gen) leftover from prior runs
 - Template specs start with an alpine `chown` for stale permissions from prior runs
 - `obsidian_anki.sh` uses `sudo` internally with password `abc` for privileged operations
 
 ### Concurrency
 - `maxInstances: 1` — one worker per spec, clean per-spec pass/fail reporting
 - Specs array is flat (not nested), so each spec gets its own worker process
-- The container processes specs sequentially via `obsidian_anki.sh` loop (waits for vault files, processes, waits for unlock, loops)
+- The container processes specs sequentially: `obsidian_anki.sh` processes a suite, then re-executes `/defaults/autostart` for the next iteration. (Note: the `while [ ! testFound ]` wait loops in `obsidian_anki.sh` currently evaluate a literal string rather than a variable, making them dead code — the script relies on timing and the re-execution pattern instead.)
 
 ### Container orchestration
 - `autostart` scripts launch Anki → PreTest screenshot → Obsidian → SSH tunnel in staggered `sleep` steps
-- `obsidian_anki.sh` handles: waiting for test files, launching Obsidian, post-test screenshots, Anki collection backup/restore, vault output copy, unlocking for next iteration
+- `obsidian_anki.sh` handles: launching Obsidian, renaming screenshots taken by `autostart`, copying the Anki collection to test outputs, copying a fresh profile from `Anki2default`, copying vault outputs, and triggering the next iteration via re-executing `autostart`
 - `onWorkerEnd` copies test outputs via `fse.copySync()` (not `rename()`, which fails cross-filesystem) then `docker exec rm` inside container
 
 ### Process safety
@@ -220,9 +224,9 @@ logs/<test_name>/
 
 ## CI (`test-e2e.yml`)
 
-Two parallel jobs run identical steps:
-- `checkout-trusted` — runs on PRs from the same repo
-- `checkout-signed` — runs on `/ok-to-test` slash commands from fork PRs
+Two parallel jobs run similar steps (differ in checkout strategy, event variables, and screenshot formatting):
+- `checkout-trusted` — runs on PRs from the same repo; flat screenshot display
+- `checkout-signed` — runs on `/ok-to-test` slash commands from fork PRs; collapsible `<details>` screenshot sections
 
 Both build the plugin, run `test-wdio` and `test-py` with `sudo`, publish JUnit XML results to a PR comment, publish screenshots via CML, and upload build artifacts. JUnit reports land in `logs/test-reports/`.
 
@@ -232,11 +236,12 @@ Both build the plugin, run `test-wdio` and `test-py` with `sudo`, publish JUnit 
 |---|---|
 | `tests/defaults/test_vault/` | Clean Obsidian vault template (with plugin registered) |
 | `tests/defaults/test_config/` | Clean Obsidian/Anki config template (with empty Anki collection) |
-| `tests/defaults/test_config/.local/share/Anki2default/` | Pristine Anki profile backup (restored between tests) |
+| `tests/defaults/test_config/.local/share/Anki2default/` | Pristine Anki profile (copied fresh between tests, preserved as source) |
 | `tests/defaults/test_vault_suites/<name>/` | Per-suite markdown files + optional `.obsidian/` plugin config |
 | `tests/defaults/specs/template.e2e.ts` | Base E2E spec template |
 | `tests/specs_gen/` | Auto-generated E2E specs (gitignored) |
 | `tests/specs/` | Hand-written E2E specs (`ng_` prefix) |
+| `wdio.conf.ts` | WebdriverIO configuration (at project root) |
 | `tests/anki/` | Python/pytest validation files |
 | `tests/test_outputs/` | Per-suite Anki collections + Obsidian markdown (gitignored) |
 | `tests/test_vault/` | Runtime vault mount (gitignored, bind-mounted into container) |

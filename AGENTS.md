@@ -23,7 +23,7 @@ See `tests/README.md` for full details. Quick reference:
 - **E2E** (`npm run test-wdio`): Docker container (Obsidian + Anki + Chrome), WebdriverIO drives the UI, 26 spec files (24 auto-generated from `tests/defaults/test_vault_suites/`, 2 hand-written with `ng_` prefix). Output → `tests/test_outputs/<name>/`.
 - **pytest** (`npm run test-py`): Reads Anki collections from `tests/test_outputs/`, validates note content, decks, tags, IDs.
 - **Full**: `npm run test` (E2E → pytest sequentially).
-- **Key conventions**: `<!-- CARD -->` markers in test markdown get `ID: <n>` written by plugin; E2E asserts every card has an ID. Python tests follow a 5-function pattern (`test_col_exists`, `test_deck_default_exists`, `test_cards_count`, `test_cards_ids_from_obsidian`, `test_cards_front_back_tag_type`). Suite dirs prefixed `ng_` skip auto-generation (hand-written spec required).
+- **Key conventions**: `<!-- CARD -->` markers in test markdown get `ID: <n>` written by plugin; E2E asserts every card has an ID. Python tests follow a 5-function pattern (`test_col_exists`, `test_deck_default_exists`, `test_cards_count`, `test_cards_ids_from_obsidian`, `test_cards_front_back_tag_type`). Exceptions: `ignore_setting` and `folder_scan` add a 6th zero-card test; `ng_delete_sync` has only `test_col_exists` (collection is empty). Suite dirs prefixed `ng_` skip auto-generation (hand-written spec required).
 
 ## Release
 
