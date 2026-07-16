@@ -211,12 +211,16 @@ logs/<test_name>/
 ### Concurrency
 - `maxInstances: 1` — one worker per spec, clean per-spec pass/fail reporting
 - Specs array is flat (not nested), so each spec gets its own worker process
-- The container processes specs sequentially: `obsidian_anki.sh` processes a suite, then re-executes `/defaults/autostart` for the next iteration. (Note: the `while [ ! testFound ]` wait loops in `obsidian_anki.sh` currently evaluate a literal string rather than a variable, making them dead code — the script relies on timing and the re-execution pattern instead.)
+- The container processes specs sequentially: `obsidian_anki.sh` processes a suite, then re-executes `/defaults/autostart` for the next iteration. (Note: the `while [ ! testFound ]` condition evaluates the literal string `testFound` — a non-empty truthy value — so `! testFound` is always false and the loop body never executes. **This is intentional.** Fixing either loop to use `"$testFound"` causes a deadlock: the first loop would block on vault files that don't exist at initial boot, and the second loop would wait for vault files that the next spec can only copy *after* the WebDriver session connects.)
 
 ### Container orchestration
 - `autostart` scripts launch Anki → PreTest screenshot → Obsidian → SSH tunnel in staggered `sleep` steps
 - `obsidian_anki.sh` handles: launching Obsidian, renaming screenshots taken by `autostart`, copying the Anki collection to test outputs, copying a fresh profile from `Anki2default`, copying vault outputs, and triggering the next iteration via re-executing `autostart`
 - `onWorkerEnd` copies test outputs via `fse.copySync()` (not `rename()`, which fails cross-filesystem) then `docker exec rm` inside container
+
+### Session creation retry budget
+
+`connectionRetryTimeout: 120000` / `connectionRetryCount: 3` in `wdio.conf.ts` must be kept at these values. Chromedriver has an internal ~60s timeout when connecting to Chrome's DevTools Protocol via `debuggerAddress` (across the SSH tunnel `8888:8890`). Reducing `connectionRetryTimeout` below 60s causes `got`'s HTTP response timeout to fire before chromedriver responds; each `got` retry chain exhausts `connectionRetryCount + 1` rounds of `connectionRetryTimeout`, and the cascading WebDriver retries compound the delay — every subsequent spec's session creation fails.
 
 ### Process safety
 - `onComplete` runs `pkill -f "dockerEvents"` to kill orphaned child from `wdio-docker-service`

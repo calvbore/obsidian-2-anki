@@ -12,7 +12,7 @@ sudo -u abc
 for file in /vaults/**/*.md; do test_name=$(basename $file); done
 test_name=$(echo $test_name | awk -F [.] '{print $1}')
 
-(sleep 2s && export LANG="LANG=C.UTF-8";LANGUAGE="en_US.UTF-8";LC_CTYPE="C.UTF-8" anki >> /config/logs/anki.log 2>&1) &
+(sleep 2s && export LANG="C.UTF-8";LANGUAGE="en_US.UTF-8";LC_CTYPE="C.UTF-8" anki >> /config/logs/anki.log 2>&1) &
 (sleep 8s && echo "Executing PreTest ss" >> /config/logs/gnome.log 2>&1 && gnome-screenshot >> /config/logs/gnome.log 2>&1 && rename "s/Screenshot from .*/Anki PreTest.png/" /config/*.png) &
 
 ls -alh /defaults/ >> /config/logs/obsidian.log 2>&1

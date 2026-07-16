@@ -169,7 +169,7 @@ export const config/* : Options.Testrunner */ = {
             // shmSize: '2g',
             d: true,
             // eg. cmd, docker run -e LANG=C.UTF-8 -e DISPLAY=$DISPLAY -e LC_ALL=C.UTF-8 -it -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_vault:/vaults -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_config:/config -p 8080:8080 debian-anki
-            e: ['LANG=C.UTF-8', 'DISPLAY=$DISPLAY', 'LC_ALL=C.UTF-8', `PUID=${process.getuid()}`, `PGID=${process.getgid()}`], 
+            e: ['LANG=C.UTF-8', `DISPLAY=${process.env.DISPLAY}`, 'LC_ALL=C.UTF-8', `PUID=${process.getuid()}`, `PGID=${process.getgid()}`], 
             v: [
                 `${ path.join(__dirname, '/tests/test_vault') }:/vaults`,
                 `${ path.join(__dirname, '/tests/test_config') }:/config`
@@ -253,7 +253,7 @@ export const config/* : Options.Testrunner */ = {
                             console.log( `'%s' is a directory. But Skipping specs generation`, fromPath );
                             continue;
                         }
-                        console.log( `'%s' is a directory. Making tests/specs/${file}.e2e.ts`, fromPath );
+                        console.log( `'%s' is a directory. Making tests/specs_gen/${file}.e2e.ts`, fromPath );
                         fs.copyFile("tests/defaults/specs/template.e2e.ts", `tests/specs_gen/${file}.e2e.ts`, (err) => {
                             if (err) {
                               console.log(`Error on trying to make specs test file ${file}:`, err);
@@ -300,18 +300,16 @@ export const config/* : Options.Testrunner */ = {
      * @param  {Number} retries  number of retries used
      */
     onWorkerEnd: function (cid, exitCode, specs, retries) {
-        // TODO: Maybe we can do the last spec file's test delay here ?
         (async () => {
-            try {
-                let test_outputs_dir = 'tests/test_config/.local/share/test_outputs';                
+            let test_outputs_dir = 'tests/test_config/.local/share/test_outputs';
+            if (!fse.pathExistsSync(test_outputs_dir)) {
+                return;
+            }
+            try {               
                 const files = await fs.promises.readdir( test_outputs_dir );
 
-                // Loop them all with the new for...of
                 for( const file of files ) {
-                    // Get the full paths
                     const fromPath = path.join( test_outputs_dir, file );
-        
-                    // Stat the file to see if we have a file or dir
                     const stat = await fs.promises.stat( fromPath );
         
                     if( stat.isDirectory() ) {
@@ -325,12 +323,12 @@ export const config/* : Options.Testrunner */ = {
                             execSync(`docker exec $(docker ps -q --filter ancestor=anki-obsidian) rm -rf /config/.local/share/test_outputs/${file} 2>/dev/null`, { stdio: 'pipe' });
                         } catch (_) {}
                     }
-                } // End for...of
+                }
             }
             catch( e ) {
                 console.error( "We've thrown! Whoops!", e );
             }  
-        })(); // Wrap in parenthesis and call now
+        })();
     },
     onComplete: function(exitCode, config, capabilities, results) {
         try {
