@@ -31,6 +31,14 @@ Hand-written specs in `tests/specs/` use `ng_` prefix to prevent auto-generation
 
 **Writes output** to `tests/test_outputs/<test_name>/` (Anki collection + Obsidian markdown files).
 
+**Infrastructure notes** (see `tests/README.md` for full details):
+- PUID/PGID env vars (`wdio.conf.ts:172`) remap the container's `abc` user to match the host UID, preventing stale uid-911 files on bind mounts.
+- `prepare-wdio.sh` runs a Docker alpine container as root before the host `rm -rf` to delete any root-owned artifacts.
+- `reset_perms.sh` only does `chmod -R 777` (no chown). Ownership is managed by `root/etc/cont-init.d/50-config` and PUID/PGID remapping.
+- `onComplete` in `wdio.conf.ts` kills the orphaned `dockerEvents` subprocess and forces `process.exit` after 30s to prevent hang.
+- Specs are ungrouped with `maxInstances: 1` — one worker per spec.
+- Template (`tests/defaults/specs/template.e2e.ts`) includes: alpine `chown` at spec start for stale permissions, `browser.reloadSession()` after Obsidian restart, `browser.deleteSession()` after `closeWindow()`.
+
 ### 2. Python/pytest — `npm run test-py`
 
 ```sh
