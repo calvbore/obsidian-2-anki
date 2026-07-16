@@ -169,7 +169,7 @@ export const config/* : Options.Testrunner */ = {
             // shmSize: '2g',
             d: true,
             // eg. cmd, docker run -e LANG=C.UTF-8 -e DISPLAY=$DISPLAY -e LC_ALL=C.UTF-8 -it -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_vault:/vaults -v D:\\\\Users\\Documents\\GitHub\\Obsidian_to_Anki\\tests\\test_config:/config -p 8080:8080 debian-anki
-            e: ['LANG=C.UTF-8', 'DISPLAY=$DISPLAY', 'LC_ALL=C.UTF-8'], 
+            e: ['LANG=C.UTF-8', 'DISPLAY=$DISPLAY', 'LC_ALL=C.UTF-8', `PUID=${process.getuid()}`, `PGID=${process.getgid()}`], 
             v: [
                 `${ path.join(__dirname, '/tests/test_vault') }:/vaults`,
                 `${ path.join(__dirname, '/tests/test_config') }:/config`
