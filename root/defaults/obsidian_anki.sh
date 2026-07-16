@@ -5,11 +5,14 @@ echo "Starting Obsisidan .... " >> /config/logs/obsidian.log 2>&1
 echo "abc" | sudo -S chown -R abc:abc /vaults
 
 testFound=false
-while [ "$testFound" != "true" ]
+while [ ! testFound ]
 do
     for f in /vaults/*/*.md; 
     do
         [ -e "$f" ] && testFound=true || testFound=false
+        ## Check if the glob gets expanded to existing files.
+        ## If not, f here will be exactly the pattern above
+        ## and the exists test will evaluate to false.
         break
     done
     sleep 0.1s
@@ -78,11 +81,14 @@ echo "abc" | sudo chown -R abc:abc /config
 
 # sleep 5s # Let wdio copy test_vault_suite
 testFound=false
-while [ "$testFound" != "true" ]
+while [ ! testFound ]
 do
     for f in /vaults/*/*.md; 
     do
         [ -e "$f" ] && testFound=true || testFound=false
+        ## Check if the glob gets expanded to existing files.
+        ## If not, f here will be exactly the pattern above
+        ## and the exists test will evaluate to false.
         break
     done
     sleep 0.1s

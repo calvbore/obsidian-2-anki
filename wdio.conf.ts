@@ -253,7 +253,7 @@ export const config/* : Options.Testrunner */ = {
                             console.log( `'%s' is a directory. But Skipping specs generation`, fromPath );
                             continue;
                         }
-                        console.log( `'%s' is a directory. Making tests/specs_gen/${file}.e2e.ts`, fromPath );
+                        console.log( `'%s' is a directory. Making tests/specs/${file}.e2e.ts`, fromPath );
                         fs.copyFile("tests/defaults/specs/template.e2e.ts", `tests/specs_gen/${file}.e2e.ts`, (err) => {
                             if (err) {
                               console.log(`Error on trying to make specs test file ${file}:`, err);
