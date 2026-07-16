@@ -18,41 +18,12 @@ No lint, no typecheck, no formatter configured. `tsconfig.json` excludes `tests/
 
 ## Tests — two suites run sequentially
 
-### 1. E2E (WebdriverIO) — `npm run test-wdio`
+See `tests/README.md` for full details. Quick reference:
 
-Requires Docker. Builds image `anki-obsidian`, runs Obsidian + Anki in a container with Chrome.
-
-**Flow**:
-1. `npm run prep-wdio` — copies default vault/config, `main.js` into test vault
-2. Builds Docker image, launches container, runs specs via WebdriverIO
-
-**Specs** auto-generated from `tests/defaults/test_vault_suites/`: each subdirectory (not prefixed `ng_`) generates a spec file in `tests/specs_gen/` by copying `tests/defaults/specs/template.e2e.ts`.
-Hand-written specs in `tests/specs/` use `ng_` prefix to prevent auto-generation.
-
-**Writes output** to `tests/test_outputs/<test_name>/` (Anki collection + Obsidian markdown files).
-
-**Infrastructure notes** (see `tests/README.md` for full details):
-- PUID/PGID env vars (`wdio.conf.ts:172`) remap the container's `abc` user to match the host UID, preventing stale uid-911 files on bind mounts.
-- `prepare-wdio.sh` runs a Docker alpine container as root before the host `rm -rf` to delete any root-owned artifacts.
-- `reset_perms.sh` only does `chmod -R 777` (no chown). Ownership is managed by `root/etc/cont-init.d/50-config` and PUID/PGID remapping.
-- `onComplete` in `wdio.conf.ts` kills the orphaned `dockerEvents` subprocess and forces `process.exit` after 30s to prevent hang.
-- Specs are ungrouped with `maxInstances: 1` — one worker per spec.
-- Template (`tests/defaults/specs/template.e2e.ts`) includes: alpine `chown` at spec start for stale permissions, `browser.reloadSession()` after Obsidian restart, `browser.deleteSession()` after `closeWindow()`.
-
-### 2. Python/pytest — `npm run test-py`
-
-```sh
-pip install pytest anki
-pytest -vvvs tests/anki/
-```
-
-Reads Anki collections from `tests/test_outputs/` (produced by e2e step). Requires `anki` Python package (the actual Anki library, not a thin client).
-
-### Full test command
-
-```sh
-npm run test         # runs test-wdio then test-py
-```
+- **E2E** (`npm run test-wdio`): Docker container (Obsidian + Anki + Chrome), WebdriverIO drives the UI, 26 spec files (24 auto-generated from `tests/defaults/test_vault_suites/`, 2 hand-written with `ng_` prefix). Output → `tests/test_outputs/<name>/`.
+- **pytest** (`npm run test-py`): Reads Anki collections from `tests/test_outputs/`, validates note content, decks, tags, IDs.
+- **Full**: `npm run test` (E2E → pytest sequentially).
+- **Key conventions**: `<!-- CARD -->` markers in test markdown get `ID: <n>` written by plugin; E2E asserts every card has an ID. Python tests follow a 5-function pattern (`test_col_exists`, `test_deck_default_exists`, `test_cards_count`, `test_cards_ids_from_obsidian`, `test_cards_front_back_tag_type`). Suite dirs prefixed `ng_` skip auto-generation (hand-written spec required).
 
 ## Release
 
