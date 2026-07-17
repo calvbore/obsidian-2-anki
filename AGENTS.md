@@ -1,5 +1,7 @@
 # Obsidian_to_Anki
 
+> **Fork**: This is a fork of [ObsidianToAnki/Obsidian_to_Anki](https://github.com/ObsidianToAnki/Obsidian_to_Anki). The upstream repo has the original wiki and documentation.
+
 ## Project structure
 
 - **Dual codebase**: Obsidian plugin (TypeScript, `main.ts`, built by rollup) + standalone Python CLI (`obsidian_to_anki.py`)
