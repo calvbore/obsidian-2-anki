@@ -252,3 +252,54 @@ Both build the plugin, run `test-wdio` and `test-py` with `sudo`, publish JUnit 
 | `tests/test_config/` | Runtime config mount (gitignored, bind-mounted into container) |
 | `logs/` | Per-spec screenshots, container logs, test reports (gitignored) |
 | `root/` | Docker overlay (autostart, obsidian_anki.sh, reset_perms.sh) |
+| `scripts/interactive-test.sh` | Interactive sandbox driver — see below |
+| `scripts/interactive-autostart` | Custom container entrypoint for sandbox (replaces baked-in autostart) |
+| `scripts/kill-sandbox.sh` | Kill a stuck sandbox container |
+
+## Interactive Sandbox (development tool)
+
+A separate entrypoint (`scripts/interactive-test.sh`) runs the same Docker image with a custom `autostart` that launches Obsidian + Anki without WebDriver automation. Connect via VNC at `http://localhost:8080` for manual testing.
+
+```sh
+npm run sandbox            # Build plugin, start container
+npm run sandbox -- --dev   # Rollup watch + hot-reload (bind-mounts main.js)
+npm run sandbox -- --dry-run  # Setup vault/config only, no Docker
+npm run kill-sandbox       # Kill container when Ctrl+C fails
+```
+
+**Key differences from the E2E pipeline:**
+- No WebDriver/Chrome — you interact via noVNC in the browser
+- No per-spec isolation — all 27 suites are copied into a single vault
+- Plugin `data.json` uses curated defaults (not per-suite configs)
+- Vault is at `/tmp/interactive-test-vault/`, config at `/tmp/interactive-test-config/` — both cleaned up on exit (pass `--dry-run` to preserve)
+- `docker rm -f` before start clears stale containers from interrupted runs
+- Container named `obsidian-to-anki-sandbox` for easy `docker kill`
+
+See `PLAN.md` for full documentation.
+
+## How It Works
+
+1. Script builds the plugin and preps vault/config dirs in `/tmp/`
+2. Docker image is built (if missing)
+3. Container starts with S6 init (handles X11, VNC, window manager)
+4. Custom `autostart` restores pristine Anki profile, launches Anki (background), waits for AnkiConnect, then launches Obsidian (background) and blocks on it. After Obsidian closes it kills Anki gracefully, then signals S6 init to stop the container.
+5. `obsidian.json` has `"open":true` — Obsidian auto-opens the vault
+6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 27 test suites
+7. User connects via browser at `localhost:8080` (VNC password: `abc`)
+8. User enables community plugins, trusts both plugins, opens notes, clicks "Scan Vault", sees cards in Anki
+9. Closing Obsidian stops the container
+10. All state in `/tmp/` — nothing touches real vaults/Anki
+
+## Notes
+
+- VNC default password `abc` is from the base image (`linuxserver/baseimage-rdesktop-web`)
+- The `--disable-gpu --disable-software-rasterizer` flags avoid Docker rendering issues
+- AnkiConnect communicates on `localhost:8765` inside the container — no port exposure needed
+- `netcat-openbsd` is pre-installed in the image (provides `nc`)
+- `sudo` is available in the image (not used by autostart — 50-config already handles ownership as root)
+- Hot Reload plugin is fetched from GitHub raw at runtime — requires internet on first run
+- `scripts/interactive-autostart` must be `chmod +x` on the host (Docker bind-mount preserves permissions)
+- `export HOME=/config` is set explicitly in the autostart because the Dockerfile overrides `HOME` to `/vaults`, but the `abc` user's `/etc/passwd` home is `/config`. Both Obsidian (Electron) and Anki (Python) resolve `~` via the passwd database, so config/data live under `/config/.config/obsidian/` and `/config/.local/share/Anki2/` regardless of `$HOME`. The explicit export covers any tool that reads `$HOME` directly.
+- The `-it` flag forwards terminal signals to the container; Ctrl+C sends SIGINT to S6-init, triggering graceful container shutdown. If run without a TTY, omit `-it` but note that manual shutdown via `docker stop` is required.
+- Temp dirs `/tmp/interactive-test-vault/` and `/tmp/interactive-test-config/` are removed after each run. Pass `--dry-run` to keep them for inspection — the script exits after setup without launching Docker or cleaning up.
+- Anki launches in dark mode by default (theme patched in test config).

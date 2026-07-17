@@ -131,3 +131,23 @@ Current features (check out the wiki for more details):
 
 Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
 
+---
+
+## Interactive sandbox (development only)
+
+A Docker-based interactive test environment that runs Obsidian + Anki in a container with noVNC access.
+
+```sh
+npm run sandbox            # Quick mode (build once, start)
+npm run sandbox -- --dev   # Dev mode (rollup watch + hot-reload)
+npm run sandbox -- --dry-run  # Setup vault/config only, no Docker
+```
+
+Connect to `http://localhost:8080` (VNC password: `abc`). The vault is populated from all 27 test suites. Anki launches in dark mode by default. If Ctrl+C fails to stop the container:
+
+```sh
+npm run kill-sandbox
+```
+
+See `PLAN.md` and `tests/README.md` for details.
+

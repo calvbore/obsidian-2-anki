@@ -14,9 +14,23 @@
 
 ```sh
 npm run build        # rollup → main.js
+npm run dev          # rollup watch
 ```
 
 No lint, no typecheck, no formatter configured. `tsconfig.json` excludes `tests/**/*.ts`.
+
+## Interactive sandbox (Docker-based)
+
+Runs Obsidian + Anki in a container with VNC access at `http://localhost:8080`.
+
+| Command | Use |
+|---------|-----|
+| `npm run sandbox` | Quick mode — build once, start container |
+| `npm run sandbox -- --dev` | Dev mode — rollup watch + hot-reload |
+| `npm run sandbox -- --dry-run` | Setup vault/config only, no Docker |
+| `npm run kill-sandbox` | Kill a running sandbox container (when Ctrl+C fails) |
+
+Key files: `scripts/interactive-test.sh`, `scripts/interactive-autostart`, `scripts/kill-sandbox.sh`. See `PLAN.md` for full documentation.
 
 ## Tests — two suites run sequentially
 
