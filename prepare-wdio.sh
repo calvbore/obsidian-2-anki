@@ -17,3 +17,13 @@ rm -rf tests/test_config
 
 cp -Rf tests/defaults/test_vault tests/ 
 cp -Rf tests/defaults/test_config tests/
+
+# Generate spec files for each test vault suite
+rm -rf tests/specs_gen/*
+mkdir -p tests/specs_gen
+for suite in tests/defaults/test_vault_suites/*/; do
+    name=$(basename "$suite")
+    if [[ $name != ng_* ]]; then
+        cp "tests/defaults/specs/template.e2e.ts" "tests/specs_gen/${name}.e2e.ts"
+    fi
+done

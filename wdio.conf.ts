@@ -231,41 +231,7 @@ export const config/* : Options.Testrunner */ = {
      * @param {Array.<Object>} capabilities list of capabilities details
      */
     onPrepare: function (config, capabilities) {
-        let vault_suites_dir = 'tests/defaults/test_vault_suites';   
-
-        (async ()=>{
-            try {
-                fse.emptyDirSync('tests/specs_gen')
-                const files = await fs.promises.readdir( vault_suites_dir );
-
-                // Loop them all with the new for...of
-                for( const file of files ) {                    
-                    // Get the full paths
-                    const fromPath = path.join( vault_suites_dir, file );
-        
-                    // Stat the file to see if we have a file or dir
-                    const stat = await fs.promises.stat( fromPath );
-                    
-                    if( stat.isDirectory() ) {
-                        if(file[0] == 'n' && file[1] == 'g' && file[2] == '_') {
-                            // No Auto Generation flag is set on folder
-                            // Dont generate spec file
-                            console.log( `'%s' is a directory. But Skipping specs generation`, fromPath );
-                            continue;
-                        }
-                        console.log( `'%s' is a directory. Making tests/specs_gen/${file}.e2e.ts`, fromPath );
-                        fs.copyFile("tests/defaults/specs/template.e2e.ts", `tests/specs_gen/${file}.e2e.ts`, (err) => {
-                            if (err) {
-                              console.log(`Error on trying to make specs test file ${file}:`, err);
-                            }
-                        });
-                    }
-                } // End for...of
-            }
-            catch( e ) {
-                console.error( "We've thrown! Whoops!", e );
-            }        
-        })(); // Wrap in parenthesis and call now
+        // Spec files are now generated in prepare-wdio.sh
     },
     /**
      * Gets executed before a worker process is spawned and can be used to initialise specific service

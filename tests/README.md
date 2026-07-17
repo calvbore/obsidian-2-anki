@@ -18,10 +18,9 @@ Prerequisites: Docker, an X server (`$DISPLAY`), and `node_modules` installed (`
 ```
 npm run test
 ├── npm run test-wdio
-│   ├── npm run prep-wdio    # prepare vault/config, copy plugin build
+│   ├── npm run prep-wdio    # prepare vault/config, copy plugin build, generate specs from test_vault_suites/
 │   ├── docker build          # build anki-obsidian image (Obsidian + Anki + Chrome)
 │   └── wdio run              # 26 parallel workers, 1 spec each
-│       ├── onPrepare: auto-generate specs from test_vault_suites/
 │       ├── per spec:
 │       │   ├── copy suite files into vault
 │       │   ├── trigger permission reset
@@ -59,7 +58,7 @@ Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
 
 ### 3. WebdriverIO (`wdio.conf.ts`)
 
-**Spec auto-generation** (`onPrepare`): Iterates `tests/defaults/test_vault_suites/`. For each subdirectory NOT prefixed `ng_`, copies `tests/defaults/specs/template.e2e.ts` → `tests/specs_gen/<name>.e2e.ts`. The `ng_` prefix means "no generate" — these suites have hand-written specs in `tests/specs/`.
+**Spec auto-generation** (`prepare-wdio.sh`): Before wdio starts, `prepare-wdio.sh` iterates `tests/defaults/test_vault_suites/`. For each subdirectory NOT prefixed `ng_`, copies `tests/defaults/specs/template.e2e.ts` → `tests/specs_gen/<name>.e2e.ts`. The `ng_` prefix means "no generate" — these suites have hand-written specs in `tests/specs/`.
 
 **Container lifecycle**: The `wdio-docker-service` spawns a container per run. The container's `autostart` script:
 1. Starts `reset_perms.sh` daemon (watches for `/config/reset_perms` signal → `chmod -R 777`)
@@ -191,6 +190,7 @@ logs/<test_name>/
 | `math_test` | LaTeX `\(...\)` inline and `\[...\]` display | 2 Basic | — |
 | `music_embed` | `[sound:]` audio tag + media file sync | 1 Cloze | — |
 | `neuracache_sync` | `#flashcard` suffix → neuracache-style notes | 3 Basic | `CUSTOM_REGEXPS` |
+| `obsidian_tags` | `#`-prefixed tags in `Tags:` line and `FILE TAGS`, inline note tags, double-`##`, hyphenated tags, edge-case tag tokens | 13 Basic | `AddObsidianTags` (set to `false`) |
 | `question_answer` | Default Q:/A: syntax | 5 Basic | — |
 | `remnote_inline` | `::` separator → remnote-style inline | 2 Basic | `CUSTOM_REGEXPS` |
 | `ruled_style` | `---` separator → front/back | 2 Basic | `CUSTOM_REGEXPS` |

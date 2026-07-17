@@ -38,7 +38,14 @@ TAG_SEP = " "
 
 def parse_tag_string(raw):
     """Split a tag string by TAG_SEP and strip leading # from each tag."""
-    return [t.lstrip('#') for t in raw.split(TAG_SEP)]
+    result = []
+    for t in raw.split(TAG_SEP):
+        if t:
+            if t.startswith('#') and len(t) > 1 and not t.startswith('##'):
+                result.append(t[1:])
+            else:
+                result.append(t)
+    return result
 
 
 OBS_TAG_REGEXP = re.compile(r'#([\w-]+)')

@@ -11,7 +11,12 @@ import { FileData } from './interfaces/settings-interface'
 const TAG_PREFIX:string = "Tags: "
 export const TAG_SEP:string = " "
 export function parseTagString(raw: string): string[] {
-    return raw.split(TAG_SEP).map(t => t.replace(/^#+/, ''))
+    return raw.split(TAG_SEP).filter(t => t).map(t => {
+        if (t.startsWith('#') && t.length > 1 && !t.startsWith('##')) {
+            return t.slice(1)
+        }
+        return t
+    })
 }
 
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
