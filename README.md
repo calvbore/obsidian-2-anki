@@ -149,5 +149,5 @@ Connect to `http://localhost:8080` (VNC password: `abc`). The vault is populated
 npm run kill-sandbox
 ```
 
-See `PLAN.md` and `tests/README.md` for details.
+See `tests/README.md` for details.
 
