@@ -1,7 +1,7 @@
 name: Build
 
 env:
-  PLUGIN_NAME: obsidian-to-anki-plugin
+  PLUGIN_NAME: obsidian-2-anki
 
 on:
   push:

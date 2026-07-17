@@ -223,7 +223,7 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async onload() {
-		console.log('loading Obsidian_to_Anki...');
+		console.log('loading Obsidian 2 Anki...');
 		addIcon('anki', ANKI_ICON)
 
 		try {
@@ -252,7 +252,7 @@ export default class MyPlugin extends Plugin {
 
 		this.addSettingTab(new SettingsTab(this.app, this));
 
-		this.addRibbonIcon('anki', 'Obsidian_to_Anki - Scan Vault', async () => {
+		this.addRibbonIcon('anki', 'Obsidian 2 Anki - Scan Vault', async () => {
 			await this.scanVault()
 		})
 
@@ -266,8 +266,8 @@ export default class MyPlugin extends Plugin {
 	}
 
 	async onunload() {
-		console.log("Saving settings for Obsidian_to_Anki...")
+		console.log("Saving settings for Obsidian 2 Anki...")
 		this.saveAllData()
-		console.log('unloading Obsidian_to_Anki...');
+		console.log('unloading Obsidian 2 Anki...');
 	}
 }

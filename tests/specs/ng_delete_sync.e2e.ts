@@ -18,7 +18,7 @@ function delay(ms: number) {
 }
 
 async function syncObsidianAnki() {
-    const SyncButton = await $('aria/Obsidian_to_Anki - Scan Vault')
+const SyncButton = await $('aria/Obsidian 2 Anki - Scan Vault')
     await expect(SyncButton).toExist()
     await $(SyncButton).click()
 

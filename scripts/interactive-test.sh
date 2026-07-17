@@ -10,7 +10,7 @@ CONFIG_DIR="/tmp/interactive-test-config"
 AUTOSTART_SRC="$SCRIPT_DIR/interactive-autostart"
 AUTOSTART_DEST="/defaults/autostart"
 HOT_RELOAD_DIR=".obsidian/plugins/hot-reload"
-PLUGIN_DIR=".obsidian/plugins/obsidian-to-anki-plugin"
+PLUGIN_DIR=".obsidian/plugins/obsidian-2-anki"
 SUITES_DIR="$REPO_DIR/tests/defaults/test_vault_suites"
 CONFIG_SRC="$REPO_DIR/tests/defaults/test_config"
 IMAGE_NAME="anki-obsidian"
@@ -209,7 +209,7 @@ fi
 
 # Write community-plugins.json
 cat > "$VAULT_DIR/.obsidian/community-plugins.json" << 'CP_EOF'
-["hot-reload", "obsidian-to-anki-plugin"]
+["hot-reload", "obsidian-2-anki"]
 CP_EOF
 
 # Write appearance.json for Obsidian dark theme
@@ -272,10 +272,10 @@ echo "=============================================================="
 echo ""
 
 echo "==> Starting container..."
-docker rm -f obsidian-to-anki-sandbox 2>/dev/null || true
+docker rm -f obsidian-2-anki-sandbox 2>/dev/null || true
 DOCKER_ARGS=(
     --rm -it
-    --name obsidian-to-anki-sandbox
+    --name obsidian-2-anki-sandbox
     -p 8080:8080
     -v "$VAULT_DIR:/vaults"
     -v "$CONFIG_DIR:/config"

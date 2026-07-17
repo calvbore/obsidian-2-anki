@@ -75,7 +75,7 @@ describe(test_name_fmt, () => {
         // await browser.execute( () => { return dispatchEvent(new KeyboardEvent('keydown', {'key': 'r', ctrlKey: true, shiftKey: true})); } );        
         // await delay(100);
         
-        let SyncButton = await $('aria/Obsidian_to_Anki - Scan Vault')
+        let SyncButton = await $('aria/Obsidian 2 Anki - Scan Vault')
         await expect(SyncButton).toExist()
         await browser.execute( () => { return dispatchEvent(new KeyboardEvent('keydown', {'key': 'r', ctrlKey: true, shiftKey: true})); } );        
         await delay(2000);
@@ -88,7 +88,7 @@ describe(test_name_fmt, () => {
         await expect(file).toExist();
         await file.click(); // Should open file in Editor
 
-        SyncButton = await $('aria/Obsidian_to_Anki - Scan Vault')
+        SyncButton = await $('aria/Obsidian 2 Anki - Scan Vault')
         await expect(SyncButton).toExist()
 
         await browser.saveScreenshot(`logs/${test_name}/Obsidian PreTest.png`)

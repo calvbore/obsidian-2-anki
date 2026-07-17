@@ -1,12 +1,12 @@
 {
-    "name": "obsidian-to-anki-plugin",
+    "name": "obsidian-2-anki",
     "version": "3.6.0",
     "description": "This is an Anki integration plugin! Designed for efficient bulk exporting.",
     "main": "main.js",
     "scripts": {
         "dev": "rollup --config rollup.config.js -w",
         "build": "rollup --config rollup.config.js",
-        "copy": "rm -rf tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && mkdir -p tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin && cp manifest.json styles.css main.js tests/defaults/test_vault/.obsidian/plugins/obsidian-to-anki-plugin/",
+        "copy": "rm -rf tests/defaults/test_vault/.obsidian/plugins/obsidian-2-anki && mkdir -p tests/defaults/test_vault/.obsidian/plugins/obsidian-2-anki && cp manifest.json styles.css main.js tests/defaults/test_vault/.obsidian/plugins/obsidian-2-anki/",
         "prep-wdio": "bash prepare-wdio.sh",
         "test-wdio": "npm run prep-wdio && docker build -t anki-obsidian . && wdio run ./wdio.conf.ts",
         "test-py": "uv run pytest -vvvs tests/anki/ --junitxml logs/test-reports/pytest.xml",
