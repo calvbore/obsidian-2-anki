@@ -30,7 +30,7 @@ Runs Obsidian + Anki in a container with VNC access at `http://localhost:8080`.
 | `npm run sandbox -- --dry-run` | Setup vault/config only, no Docker |
 | `npm run kill-sandbox` | Kill a running sandbox container (when Ctrl+C fails) |
 
-Key files: `scripts/interactive-test.sh`, `scripts/interactive-autostart`, `scripts/kill-sandbox.sh`. See `PLAN.md` for full documentation.
+Key files: `scripts/interactive-test.sh`, `scripts/interactive-autostart`, `scripts/kill-sandbox.sh`. See `tests/README.md` for full documentation.
 
 ## Tests — two suites run sequentially
 

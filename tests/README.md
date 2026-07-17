@@ -275,8 +275,6 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 - `docker rm -f` before start clears stale containers from interrupted runs
 - Container named `obsidian-to-anki-sandbox` for easy `docker kill`
 
-See `PLAN.md` for full documentation.
-
 ## How It Works
 
 1. Script builds the plugin and preps vault/config dirs in `/tmp/`
