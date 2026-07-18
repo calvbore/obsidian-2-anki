@@ -43,11 +43,51 @@ See `tests/README.md` for full details. Quick reference:
 
 ## Release
 
-Tag-pushed release workflow packages `main.js`, `manifest.json`, `styles.css` into a zip and creates a draft GitHub release.
+This fork publishes releases to GitHub; install via [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `https://github.com/calvbore/obsidian-2-anki`.
+
+### Prerequisites
+
+Bump the version in these files (use `x.y.z` format, digits and dots only):
+- `manifest.json` — `"version"` field
+- `package.json` — `"version"` field
+- `versions.json` — add `"x.y.z": "minAppVersion"` entry (e.g. `"3.6.1": "0.9.20"`)
+
+Then commit:
+
+```sh
+git add manifest.json package.json versions.json
+git commit -m "chore: prepare v<x.y.z> for BRAT release"
+```
+
+### Release workflow
+
+`.github/workflows/obsidian-release.yml` triggers on **any tag push**.
+
+1. **Tag and push**:
+   ```sh
+   git tag <x.y.z>
+   git push origin <x.y.z>
+   ```
+2. The workflow:
+   - Checks out the tag (`actions/checkout@v7`)
+   - Runs `npm ci && npm run build` → produces `main.js`
+   - Packages `main.js`, `manifest.json`, `styles.css`, `README.md` into `obsidian-2-anki-<x.y.z>.zip`
+   - Creates a **draft** GitHub release via `softprops/action-gh-release@v3` with auto-generated release notes
+3. **Publish the draft** at https://github.com/calvbore/obsidian-2-anki/releases:
+   - Edit the draft
+   - Write/review release notes (auto-generated from `generate_release_notes: true`)
+   - Optionally mark as **Pre-release** (BRAT handles pre-releases the same as full releases)
+   - Click **Publish release**
+
+### Installing via BRAT
+
+1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Obsidian Community Plugins
+2. BRAT Settings → Add Beta Plugin → paste `https://github.com/calvbore/obsidian-2-anki`
+3. BRAT downloads the latest release (pre-release or not) and installs it
 
 ## Key conventions
 
-- **Plugin ID**: `obsidian-to-anki-plugin`. Display name: `Obsidian_to_Anki`
+- **Plugin ID**: `obsidian-2-anki`. Display name: `Obsidian 2 Anki`
 - **Min Obsidian version**: `0.9.20`. Desktop-only
 - **Default syntax**: `START`/`END` for notes, `STARTI`/`ENDI` for inline, `TARGET DECK`, `FILE TAGS`, `DELETE`, `FROZEN`
 - **Default tag**: `Obsidian_to_Anki`. Default deck: `Default`

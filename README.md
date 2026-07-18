@@ -16,9 +16,9 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 
 ### Obsidian plugin users
 3. Have [Obsidian](https://obsidian.md/) downloaded
-4. Search the 'Community plugins' list for this plugin
-5. Install the plugin.
-6. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
+4. Since this fork is not in the community plugin store, install via [BRAT](https://github.com/TfTHacker/obsidian42-brat):
+   - BRAT Settings → Add Beta Plugin → paste `https://github.com/calvbore/obsidian-2-anki`
+5. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
 <pre>
 {
     "apiKey": null,
@@ -33,8 +33,8 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 }
 </pre>
 
-7. Restart Anki to apply the above changes
-8. With Anki running in the background, load the plugin. This will generate the plugin settings.
+6. Restart Anki to apply the above changes
+7. With Anki running in the background, load the plugin. This will generate the plugin settings.
 
 
 You shouldn't need Anki running to load Obsidian in the future, though of course you will need it for using the plugin!
