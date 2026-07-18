@@ -45,7 +45,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v3
         with:
-          generate_release_notes: false
+          generate_release_notes: true
           draft: true
           files: |
             main.js
