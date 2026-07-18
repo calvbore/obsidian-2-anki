@@ -24,10 +24,10 @@ jobs:
          node-version: "18.x" # You might need to adjust this value to your own version.
 
      # Get the version number and put it in an environment file
-     - name: Get Version
-       id: version
-       run: |
-         echo "tag=$(git describe --tags $(git rev-list --tags --max-count=1))" >> $GITHUB_ENV
+      - name: Get Version
+        id: version
+        run: |
+          echo "tag=${{ github.ref_name }}" >> $GITHUB_ENV
 
      # Build the plugin
      - name: Build
