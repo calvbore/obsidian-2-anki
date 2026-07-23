@@ -25,7 +25,7 @@ npm run test
 │       │   ├── copy suite files into vault
 │       │   ├── trigger permission reset
 │       │   ├── browser.reloadSession()
-│       │   ├── open Obsidian, click "Scan Vault"
+│       │   ├── open Obsidian, click "Sync Entire Vault"
 │       │   ├── wait for "All done!" console log
 │       │   ├── assert every <!-- CARD --> has an ID: <n> comment
 │       │   └── close window
@@ -75,7 +75,7 @@ Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
 5. Write `reset_perms` signal file → container sets world-writable
 6. `browser.reloadSession()` — fresh WebDriver session for restarted Obsidian
 7. Trust the plugin (click "Trust" button), dismiss any dialogs
-8. Find Scan Vault button, reload vault (Ctrl+Shift+R), navigate to suite file, find Scan Vault again, take PreTest screenshot, then click Scan Vault
+8. Find Sync Entire Vault button, reload vault (Ctrl+Shift+R), navigate to suite file, find Sync Entire Vault again, take PreTest screenshot, then click Sync Entire Vault
 9. Poll browser console logs for "All done!" message
 10. Screenshots (PostTest, and Error if warnings/errors present)
 11. Close window, delete session
@@ -139,7 +139,7 @@ These use `ng_` prefix in the suite directory name to prevent auto-generation, a
 
 2. **E2E spec**: If no `ng_` prefix, one is auto-generated from the template. It will:
    - Copy your suite files into the vault
-   - Run "Scan Vault"
+   - Run "Sync Entire Vault"
    - Assert `<!-- CARD -->` ↔ `ID:` match
    
    If `ng_` prefix, write `tests/specs/ng_<name>.e2e.ts` (copy `ng_basic_update.e2e.ts` as a reference).
@@ -284,7 +284,7 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 5. `obsidian.json` has `"open":true` — Obsidian auto-opens the vault
 6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 27 test suites
 7. User connects via browser at `localhost:8080` (VNC password: `abc`)
-8. User enables community plugins, trusts both plugins, opens notes, clicks "Scan Vault", sees cards in Anki
+8. User enables community plugins, trusts both plugins, opens notes, clicks "Sync Entire Vault", sees cards in Anki
 9. Closing Obsidian stops the container
 10. All state in `/tmp/` — nothing touches real vaults/Anki
 

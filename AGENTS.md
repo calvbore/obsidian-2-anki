@@ -41,6 +41,22 @@ See `tests/README.md` for full details. Quick reference:
 - **Full**: `npm run test` (E2E → pytest sequentially).
 - **Key conventions**: `<!-- CARD -->` markers in test markdown get `ID: <n>` written by plugin; E2E asserts every card has an ID. Python tests follow a 5-function pattern (`test_col_exists`, `test_deck_default_exists`, `test_cards_count`, `test_cards_ids_from_obsidian`, `test_cards_front_back_tag_type`). Exceptions: `ignore_setting` and `folder_scan` add a 6th zero-card test; `ng_delete_sync` has only `test_col_exists` (collection is empty). Suite dirs prefixed `ng_` skip auto-generation (hand-written spec required).
 
+### Test coverage gaps (post-redesign)
+
+All 27 E2E specs only test one interaction path: click the ribbon sync button → wait for "All done!" → assert card IDs. The following new UI features from the recent redesign have no E2E coverage:
+
+| Feature | Notes |
+|---|---|
+| **ProgressModal** | Progress bar + cancel button during sync |
+| **Cancel button** | Aborting an in-progress sync — should assert no "All done!" fires |
+| **Settings tabs** | Tab-based settings navigation (FolderSuggester, SearchableTable, import/export) |
+| **Context menu** | Right-click file/folder → "Sync Current File" / "Sync Current Folder" |
+| **"Sync Current File" command** | Command palette entry |
+| **"Sync Current Folder" command** | Command palette entry |
+| **Status bar** | Colored text states during/finish/error |
+
+Highest value for future test work: a `ng_cancel_sync` hand-written spec that clicks Cancel during sync to verify the Phase 2a abort fix.
+
 ## Release
 
 This fork publishes releases to GitHub; install via [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `https://github.com/calvbore/obsidian-2-anki`.
