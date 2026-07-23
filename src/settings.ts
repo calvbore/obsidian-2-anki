@@ -84,7 +84,7 @@ export class SettingsTab extends PluginSettingTab {
 		})
 
 		const folderPickerBtn = scanDirContainer.createEl('button', {
-			text: '📁 Browse',
+			text: 'Browse',
 			cls: 'anki-folder-picker-btn'
 		})
 
@@ -360,6 +360,10 @@ export class SettingsTab extends PluginSettingTab {
 								reader.onload = async (e: any) => {
 									try {
 										const imported = JSON.parse(e.target.result)
+										if (!imported || typeof imported !== 'object' || !imported.Defaults || typeof imported.Defaults !== 'object' || !imported.Syntax || typeof imported.Syntax !== 'object' || !imported.CUSTOM_REGEXPS || typeof imported.CUSTOM_REGEXPS !== 'object') {
+											new Notice("Invalid settings file: missing required sections (Defaults, Syntax, CUSTOM_REGEXPS)")
+											return
+										}
 										plugin.settings = imported
 										await plugin.saveAllData()
 										this.display() // Refresh UI

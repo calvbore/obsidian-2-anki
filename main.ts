@@ -16,6 +16,7 @@ export default class MyPlugin extends Plugin {
 	file_hashes: Record<string, string>
 	statusBarItem: HTMLElement
 	isSyncing: boolean = false
+	syncAborted: boolean = false
 
 	async getDefaultSettings(): Promise<PluginSettings> {
 		let settings: PluginSettings = {
@@ -225,10 +226,12 @@ export default class MyPlugin extends Plugin {
 		}
 
 		this.isSyncing = true
+		this.syncAborted = false
 		this.updateStatusBar("syncing")
 
 		const progressModal = new ProgressModal(this.app, () => {
-			this.isSyncing = false
+			this.syncAborted = true
+			progressModal.close()
 			this.updateStatusBar("idle")
 		})
 		progressModal.open()
@@ -249,8 +252,10 @@ export default class MyPlugin extends Plugin {
 			}
 
 			progressModal.setStatus("Connected to Anki! Preparing files...")
+			if (this.syncAborted) { return }
 
 			const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
+			if (this.syncAborted) { return }
 
 			let filesToSync: TFile[]
 			if (files === null) {
@@ -281,6 +286,7 @@ export default class MyPlugin extends Plugin {
 
 			progressModal.setStatus("Scanning files for changes...")
 			await manager.initialiseFiles()
+			if (this.syncAborted) { return }
 
 			const changedFilesCount = manager.ownFiles.length
 			if (changedFilesCount === 0) {
@@ -294,6 +300,7 @@ export default class MyPlugin extends Plugin {
 			progressModal.setProgress(1, 2, `Processing ${changedFilesCount} changed file(s)...`)
 
 			await manager.requests_1()
+			if (this.syncAborted) { return }
 
 			this.added_media = Array.from(manager.added_media_set)
 			const hashes = manager.getHashes()
@@ -303,15 +310,18 @@ export default class MyPlugin extends Plugin {
 
 			progressModal.setProgress(2, 2, "Saving changes...")
 			await this.saveAllData()
+			if (this.syncAborted) { return }
 
-			progressModal.close()
-			new Notice(`✅ Successfully synced ${changedFilesCount} file(s) to Anki!`)
-			this.updateStatusBar("success")
+			if (!this.syncAborted) {
+				progressModal.close()
+				new Notice(`Successfully synced ${changedFilesCount} file(s) to Anki!`)
+				this.updateStatusBar("success")
 
-			// Reset to idle after 3 seconds
-			setTimeout(() => {
-				this.updateStatusBar("idle")
-			}, 3000)
+				// Reset to idle after 3 seconds
+				setTimeout(() => {
+					this.updateStatusBar("idle")
+				}, 3000)
+			}
 
 		} catch(e) {
 			console.error("Error during sync:", e)
@@ -320,6 +330,7 @@ export default class MyPlugin extends Plugin {
 			this.updateStatusBar("error")
 		} finally {
 			this.isSyncing = false
+			this.syncAborted = false
 		}
 	}
 
@@ -330,32 +341,26 @@ export default class MyPlugin extends Plugin {
 
 		const container = this.statusBarItem.createDiv({ cls: 'anki-status-bar-item' })
 
-		let icon = "📝"
 		let text = "Anki"
 		let className = ""
 
 		switch(state) {
 			case "syncing":
-				icon = "🔄"
 				text = "Syncing..."
 				className = "anki-status-syncing"
 				break
 			case "success":
-				icon = "✅"
 				text = "Synced"
 				className = "anki-status-success"
 				break
 			case "error":
-				icon = "❌"
 				text = "Error"
 				className = "anki-status-error"
 				break
 			default:
-				icon = "📝"
 				text = "Anki"
 		}
 
-		container.createSpan({ text: icon })
 		container.createSpan({ text: text, cls: className })
 	}
 
