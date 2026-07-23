@@ -151,3 +151,7 @@ npm run kill-sandbox
 
 See `tests/README.md` for details.
 
+## Acknowledgments
+
+- [@Zennykenzo4210](https://github.com/Zennykenzo4210) — UI/UX redesign (tab-based settings, progress modal, status bar, context menu, and new sync commands) via [PR #673](https://github.com/ObsidianToAnki/Obsidian_to_Anki/pull/673).
+
