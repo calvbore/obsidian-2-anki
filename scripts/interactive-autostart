@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# set -e deliberately NOT used — wait $OBSIDIAN_PID below would exit the
+# script early if Obsidian crashes, skipping graceful Anki shutdown and
+# container stop.
+
+xset -b
+mkdir -p /config/logs
+
+export HOME=/config
+export LANG="C.UTF-8"
+export LANGUAGE="en_US.UTF-8"
+export LC_CTYPE="C.UTF-8"
+
+# Restore pristine Anki profile from Anki2default
+# 50-config already chowns /config to abc:abc at init time, so files
+# created here are owned by abc — no chown needed.
+if [ -d /config/.local/share/Anki2default ]; then
+  rm -rf /config/.local/share/Anki2
+  cp -Raf /config/.local/share/Anki2default /config/.local/share/Anki2
+else
+  echo "WARNING: Anki2default not found — skipping profile restore." \
+    >> /config/logs/autostart.log
+fi
+
+# Start Anki in background
+anki >> /config/logs/anki.log 2>&1 &
+ANKI_PID=$!
+
+# Wait for AnkiConnect to be ready (poll port 8765)
+ANKI_READY=false
+for i in $(seq 1 30); do
+  if nc -z localhost 8765 2>/dev/null; then
+    ANKI_READY=true
+    break
+  fi
+  sleep 1
+done
+
+if [ "$ANKI_READY" = false ]; then
+  echo "WARNING: AnkiConnect not reachable on port 8765 after 30s —" \
+       "scan vault will fail." >> /config/logs/autostart.log
+fi
+
+# Launch Obsidian (wait blocks on it below)
+/squashfs-root/obsidian --no-sandbox --disable-dev-shm-usage \
+  --disable-gpu --disable-software-rasterizer &
+OBSIDIAN_PID=$!
+
+# Wait for Obsidian to close
+wait $OBSIDIAN_PID || true
+
+# Graceful shutdown: kill Anki first to avoid SQLite corruption
+kill $ANKI_PID 2>/dev/null
+wait $ANKI_PID 2>/dev/null
+
+# Signal S6 init to stop the container
+kill -TERM 1

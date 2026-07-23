@@ -1,19 +1,11 @@
 
 import re
-import pytest
 from anki.errors import NotFoundError  # noqa
 from anki.collection import Collection
 from anki.collection import SearchNode
-# from conftest import col
 
 col_path = 'tests/test_outputs/basic_sync/Anki2/User 1/collection.anki2'
 test_file_path = 'tests/test_outputs/basic_sync/Obsidian/basic_sync/basic_sync.md'
-
-@pytest.fixture()
-def col():
-    col = Collection(col_path)
-    yield col
-    col.close()
 
 def test_col_exists(col):
     assert not col.is_empty()

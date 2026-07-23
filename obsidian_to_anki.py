@@ -34,6 +34,21 @@ MEDIA = dict()
 ID_PREFIX = "ID: "
 TAG_PREFIX = "Tags: "
 TAG_SEP = " "
+
+
+def parse_tag_string(raw):
+    """Split a tag string by TAG_SEP and strip leading # from each tag."""
+    result = []
+    for t in raw.split(TAG_SEP):
+        if t:
+            if t.startswith('#') and len(t) > 1 and not t.startswith('##'):
+                result.append(t[1:])
+            else:
+                result.append(t)
+    return result
+
+
+OBS_TAG_REGEXP = re.compile(r'#([\w-]+)')
 Note_and_id = collections.namedtuple('Note_and_id', ['note', 'id'])
 NOTE_DICT_TEMPLATE = {
     "deckName": "",
@@ -516,8 +531,8 @@ class Note:
         else:
             self.identifier = None
         if self.lines[-1].startswith(TAG_PREFIX):
-            self.tags = self.lines.pop()[len(TAG_PREFIX):].split(
-                TAG_SEP
+            self.tags = parse_tag_string(
+                self.lines.pop()[len(TAG_PREFIX):]
             )
         else:
             self.tags = list()
@@ -590,7 +605,7 @@ class InlineNote(Note):
             self.identifier = None
         TAGS = InlineNote.TAG_REGEXP.search(self.text)
         if TAGS is not None:
-            self.tags = TAGS.group(1).split(TAG_SEP)
+            self.tags = parse_tag_string(TAGS.group(1))
             self.text = self.text[:TAGS.start()]
         else:
             self.tags = list()
@@ -639,8 +654,8 @@ class RegexNote:
             self.identifier = None
         if tags:
             # Even if id were present, tags is now last group
-            self.tags = self.groups.pop()[len(TAG_PREFIX):].split(
-                TAG_SEP
+            self.tags = parse_tag_string(
+                self.groups.pop()[len(TAG_PREFIX):]
             )
         else:
             self.tags = list()
@@ -1231,7 +1246,7 @@ class File:
     def setup_global_tags(self):
         result = App.TAG_REGEXP.search(self.file)
         if result is not None:
-            self.global_tags = result.group(1)
+            self.global_tags = " ".join(parse_tag_string(result.group(1)))
         else:
             self.global_tags = ""
 

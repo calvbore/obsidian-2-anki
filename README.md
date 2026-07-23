@@ -1,3 +1,5 @@
+> **Fork**: This is a fork of [ObsidianToAnki/Obsidian_to_Anki](https://github.com/ObsidianToAnki/Obsidian_to_Anki).
+
 # Obsidian_to_Anki
 Plugin to add flashcards from a text or markdown file to Anki. Run in Obsidian as a plugin, or from the command-line as a python script. Built with [Obsidian](https://obsidian.md/) markdown syntax in mind. Supports **user-defined custom syntax for flashcards.**  
 See the [Trello](https://trello.com/b/6MXEizGg/obsidiantoanki) for planned features.
@@ -14,9 +16,9 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 
 ### Obsidian plugin users
 3. Have [Obsidian](https://obsidian.md/) downloaded
-4. Search the 'Community plugins' list for this plugin
-5. Install the plugin.
-6. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
+4. Since this fork is not in the community plugin store, install via [BRAT](https://github.com/TfTHacker/obsidian42-brat):
+   - BRAT Settings → Add Beta Plugin → paste `https://github.com/calvbore/obsidian-2-anki`
+5. In Anki, navigate to Tools->Addons->AnkiConnect->Config, and change it to look like this:
 <pre>
 {
     "apiKey": null,
@@ -31,8 +33,8 @@ Check out the [Wiki](https://github.com/Pseudonium/Obsidian_to_Anki/wiki)! It ha
 }
 </pre>
 
-7. Restart Anki to apply the above changes
-8. With Anki running in the background, load the plugin. This will generate the plugin settings.
+6. Restart Anki to apply the above changes
+7. With Anki running in the background, load the plugin. This will generate the plugin settings.
 
 
 You shouldn't need Anki running to load Obsidian in the future, though of course you will need it for using the plugin!
@@ -129,4 +131,23 @@ Current features (check out the wiki for more details):
 
 Note that **all custom syntax is off by default**, and must be programmed into the script via the config file - see the Wiki for more details.
 
-<a href='https://ko-fi.com/K3K52X4L6' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://cdn.ko-fi.com/cdn/kofi1.png?v=2' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+---
+
+## Interactive sandbox (development only)
+
+A Docker-based interactive test environment that runs Obsidian + Anki in a container with noVNC access.
+
+```sh
+npm run sandbox            # Quick mode (build once, start)
+npm run sandbox -- --dev   # Dev mode (rollup watch + hot-reload)
+npm run sandbox -- --dry-run  # Setup vault/config only, no Docker
+```
+
+Connect to `http://localhost:8080` (VNC password: `abc`). The vault is populated from all 27 test suites. Anki launches in dark mode by default. If Ctrl+C fails to stop the container:
+
+```sh
+npm run kill-sandbox
+```
+
+See `tests/README.md` for details.
+
