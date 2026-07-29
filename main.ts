@@ -17,6 +17,8 @@ export default class MyPlugin extends Plugin {
 	statusBarItem: HTMLElement
 	isSyncing: boolean = false
 	syncAborted: boolean = false
+	settingsTab: SettingsTab | undefined
+	renameQueue: Array<{ oldPath: string; newPath: string; isFolder: boolean }> = []
 
 	async getDefaultSettings(): Promise<PluginSettings> {
 		let settings: PluginSettings = {
@@ -136,14 +138,14 @@ export default class MyPlugin extends Plugin {
 		return current_data.fields_dict
 	}
 
-	async saveAllData(): Promise<void> {
-		this.saveData(
-				{
-					settings: this.settings,
-					"Added Media": this.added_media,
-					"File Hashes": this.file_hashes,
-					fields_dict: this.fields_dict
-				}
+async saveAllData(): Promise<void> {
+		await this.saveData(
+			{
+				settings: this.settings,
+				"Added Media": this.added_media,
+				"File Hashes": this.file_hashes,
+				fields_dict: this.fields_dict
+			}
 		)
 	}
 
@@ -252,9 +254,11 @@ export default class MyPlugin extends Plugin {
 			}
 
 			progressModal.setStatus("Connected to Anki! Preparing files...")
+			console.info("[TRACE] Connected to Anki")
 			if (this.syncAborted) { return }
 
 			const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
+			console.info("[TRACE] settingToData done")
 			if (this.syncAborted) { return }
 
 			let filesToSync: TFile[]
@@ -279,18 +283,23 @@ export default class MyPlugin extends Plugin {
 				filesToSync = files
 			}
 
+			console.info("[TRACE] filesToSync count: " + filesToSync.length)
 			progressModal.setStatus(`Syncing ${scope}...`)
 			progressModal.setProgress(0, 1, `Found ${filesToSync.length} file(s)`)
 
 			const manager = new FileManager(this.app, data, filesToSync, this.file_hashes, this.added_media)
 
 			progressModal.setStatus("Scanning files for changes...")
+			console.info("[TRACE] Before initialiseFiles")
 			await manager.initialiseFiles()
+			console.info("[TRACE] After initialiseFiles")
 			if (this.syncAborted) { return }
 
 			const changedFilesCount = manager.ownFiles.length
+			console.info("[TRACE] changedFilesCount: " + changedFilesCount)
 			if (changedFilesCount === 0) {
 				new Notice("No changes detected!")
+				console.info("No changes detected!")
 				progressModal.close()
 				this.isSyncing = false
 				this.updateStatusBar("idle")
@@ -299,7 +308,9 @@ export default class MyPlugin extends Plugin {
 
 			progressModal.setProgress(1, 2, `Processing ${changedFilesCount} changed file(s)...`)
 
+			console.info("[TRACE] Before requests_1")
 			await manager.requests_1()
+			console.info("[TRACE] After requests_1")
 			if (this.syncAborted) { return }
 
 			this.added_media = Array.from(manager.added_media_set)
@@ -331,7 +342,59 @@ export default class MyPlugin extends Plugin {
 		} finally {
 			this.isSyncing = false
 			this.syncAborted = false
+
+			// Process any queued rename migrations
+			while (this.renameQueue.length > 0) {
+				const item = this.renameQueue.shift()!
+				await this.applyMigration(item.oldPath, item.newPath, item.isFolder)
+			}
 		}
+	}
+
+	private async applyMigration(oldPath: string, newPath: string, isFolder: boolean): Promise<void> {
+		console.log('[applyMigration] called:', { oldPath, newPath, isFolder, file_hashes_before: { ...this.file_hashes }, FOLDER_DECKS_before: { ...this.settings.FOLDER_DECKS }, FOLDER_TAGS_before: { ...this.settings.FOLDER_TAGS }, ScanDir_before: this.settings.Defaults["Scan Directory"] })
+		const migrateRecord = (rec: Record<string, string>) => {
+			if (!rec) return
+			for (const key of Object.keys(rec)) {
+				if (key === oldPath || key.startsWith(oldPath + '/')) {
+					const suffix = key.slice(oldPath.length)
+					rec[newPath + suffix] = rec[key]
+					delete rec[key]
+				}
+			}
+		}
+		const oldPrefix = oldPath + '/'
+
+		if (isFolder) {
+			migrateRecord(this.settings.FOLDER_DECKS)
+			migrateRecord(this.settings.FOLDER_TAGS)
+
+			// Auto-update Scan Directory if it points into the renamed folder
+			const scanDir = this.settings.Defaults["Scan Directory"]
+			if (scanDir && (scanDir === oldPath || scanDir.startsWith(oldPrefix))) {
+				this.settings.Defaults["Scan Directory"] = newPath + scanDir.slice(oldPath.length)
+			}
+
+			// Migrate file_hashes for all files inside the renamed folder.
+			// Obsidian does NOT fire individual 'rename' events for child files
+			// when a folder is renamed — the folder event is the only one.
+			for (const key of Object.keys(this.file_hashes)) {
+				if (key.startsWith(oldPrefix)) {
+					if (key in this.file_hashes) {
+						this.file_hashes[newPath + key.slice(oldPath.length)] = this.file_hashes[key]
+						delete this.file_hashes[key]
+					}
+				}
+			}
+
+			// Refresh settings UI if open — folder paths changed
+			this.settingsTab?.refreshFolderSettings()
+		} else if (this.file_hashes[oldPath]) {
+			this.file_hashes[newPath] = this.file_hashes[oldPath]
+			delete this.file_hashes[oldPath]
+		}
+		console.log('[applyMigration] after:', { file_hashes_after: { ...this.file_hashes }, FOLDER_DECKS_after: { ...this.settings.FOLDER_DECKS }, FOLDER_TAGS_after: { ...this.settings.FOLDER_TAGS }, ScanDir_after: this.settings.Defaults["Scan Directory"] })
+		await this.saveAllData()
 	}
 
 	updateStatusBar(state: "idle" | "syncing" | "success" | "error") {
@@ -396,7 +459,24 @@ export default class MyPlugin extends Plugin {
 		this.statusBarItem = this.addStatusBarItem()
 		this.updateStatusBar("idle")
 
-		this.addSettingTab(new SettingsTab(this.app, this));
+		this.settingsTab = new SettingsTab(this.app, this)
+		this.addSettingTab(this.settingsTab);
+
+		// Rename event handler — migrate FOLDER_DECKS, FOLDER_TAGS, file_hashes, Scan Directory
+		this.registerEvent(
+			this.app.vault.on('rename', async (file: TAbstractFile, oldPath: string) => {
+				console.log('[rename handler] event:', { oldPath, newPath: file.path, isFolder: file instanceof TFolder, isSyncing: this.isSyncing })
+				// If a sync is in progress, queue the migration to run after sync completes.
+				// In-flight sync closures hold ref-copies of FOLDER_DECKS/FOLDER_TAGS;
+				// mutating them mid-sync would silently drop overrides for files at old paths.
+				if (this.isSyncing) {
+					this.renameQueue.push({ oldPath, newPath: file.path, isFolder: file instanceof TFolder })
+					new Notice("Folder/file rename queued — migration will apply after sync completes")
+					return
+				}
+				await this.applyMigration(oldPath, file.path, file instanceof TFolder)
+			})
+		)
 
 		this.addRibbonIcon('anki', 'Obsidian 2 Anki - Sync Vault', async () => {
 			await this.scanVault()
@@ -456,7 +536,7 @@ export default class MyPlugin extends Plugin {
 
 	async onunload() {
 		console.log("Saving settings for Obsidian 2 Anki...")
-		this.saveAllData()
+		await this.saveAllData()
 		console.log('unloading Obsidian 2 Anki...');
 	}
 }

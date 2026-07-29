@@ -258,6 +258,13 @@ export class SettingsTab extends PluginSettingTab {
 		}
 	}
 
+	// Called after folder rename to refresh the Folders tab with new paths
+	refreshFolderSettings() {
+		const container = this.tabContainer?.getTabContent('folders')
+		if (!container) return
+		this.setupFoldersTab()
+	}
+
 	private setupSyntaxTab() {
 		const container = this.tabContainer.getTabContent('syntax')
 		if (!container) return

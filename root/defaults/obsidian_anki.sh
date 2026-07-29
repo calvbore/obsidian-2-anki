@@ -26,8 +26,12 @@ sleep 1s
 echo "Obsisidan Ended .... " >> /config/logs/obsidian.log 2>&1
 
 # ss_dir = 
-for file in /vaults/**/*.md; do test_name=$(basename $file); done
-test_name=$(echo $test_name | awk -F [.] '{print $1}')
+for d in /vaults/*/; do
+    name=$(basename "$d")
+    [ "$name" = ".obsidian" ] && continue
+    test_name="$name"
+    break
+done
 
 echo "Executing PostTest ss" >> /config/logs/gnome.log 2>&1 && gnome-screenshot >> /config/logs/gnome.log 2>&1 && rename "s/Screenshot from .*/Anki PostTest_${test_name}.png/" /config/*.png
 rename "s/Anki PreTest.png/Anki PreTest_${test_name}.png/" /config/*.png

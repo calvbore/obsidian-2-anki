@@ -172,7 +172,8 @@ export const config/* : Options.Testrunner */ = {
             e: ['LANG=C.UTF-8', `DISPLAY=${process.env.DISPLAY}`, 'LC_ALL=C.UTF-8', `PUID=${process.getuid()}`, `PGID=${process.getgid()}`], 
             v: [
                 `${ path.join(__dirname, '/tests/test_vault') }:/vaults`,
-                `${ path.join(__dirname, '/tests/test_config') }:/config`
+                `${ path.join(__dirname, '/tests/test_config') }:/config`,
+                `${ path.join(__dirname, '/root/defaults/obsidian_anki.sh') }:/defaults/obsidian_anki.sh`
             ]
         }        
     },

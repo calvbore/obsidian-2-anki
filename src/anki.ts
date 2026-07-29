@@ -12,6 +12,7 @@ export function invoke(action: string, params={}) {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest()
         xhr.addEventListener('error', () => reject('failed to issue request'));
+        xhr.addEventListener('timeout', () => reject('request timed out'));
         xhr.addEventListener('load', () => {
             try {
                 const response = JSON.parse(xhr.responseText);
@@ -34,6 +35,7 @@ export function invoke(action: string, params={}) {
         });
 
         xhr.open('POST', 'http://127.0.0.1:' + ANKI_PORT.toString());
+        xhr.timeout = 10000;
         xhr.send(JSON.stringify({action, version: 6, params}));
     });
 }
