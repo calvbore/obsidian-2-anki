@@ -90,8 +90,31 @@ describe(test_name_fmt, () => {
         // File click is unnecessary — sync scans all vault files.
 
         await delay(100);                
+
+        // 8.3 Status bar initial state (idle): plugin onload() calls updateStatusBar("idle") -> "Anki"
+        const idleStatus = await browser.execute(() => {
+            const el = document.querySelector('.anki-status-bar-item span');
+            return el?.textContent || '';
+        });
+        assert((idleStatus as string) === 'Anki', `Status bar should show "Anki" before sync, got "${idleStatus}"`);
+
         await browser.saveScreenshot(`logs/${test_name}/Obsidian PreTest.png`)
         await syncObsidianAnki('first-sync');        
+
+        // 8.3 Status bar success state: poll until updateStatusBar("success") -> "Synced".
+        // "All done!" is logged during requests_1(), before updateStatusBar("success") and a
+        // 3s setTimeout resets it to idle, so poll within the 3s window.
+        let syncedStatus = '';
+        for (let i = 0; i < 50; i++) {
+            syncedStatus = await browser.execute(() => {
+                const el = document.querySelector('.anki-status-bar-item span');
+                return el?.textContent || '';
+            }) as string;
+            if (syncedStatus === 'Synced') break;
+            await delay(50);
+        }
+        assert(syncedStatus === 'Synced', `Status bar should show "Synced" after sync, got "${syncedStatus}"`);
+
         await browser.saveScreenshot(`logs/${test_name}/Obsidian PostTest.png`)
         
         await delay(1000);

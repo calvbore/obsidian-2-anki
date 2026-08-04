@@ -20,8 +20,10 @@ def test_deck_default_exists(col: Collection):
     assert col.decks.id_for_name('SyncFolderDeck') is not None
 
 def test_cards_count(col: Collection):
-    # 2 cards total - root + sync_folder (renamed to renamed_sync_folder)
-    assert len(col.find_cards( col.build_search_string(SearchNode(deck='Default')) )) == 51
+    # Default: 1 root card only — the 50 queued "Cancel test card" notes are aborted
+    # (the whole point of the Cancel button); they must NOT be committed to Anki.
+    assert len(col.find_cards( col.build_search_string(SearchNode(deck='Default')) )) == 1
+    # SyncFolderDeck: 2 cards from card.md (original + "Queued card" added in the rename cycle)
     assert len(col.find_cards( col.build_search_string(SearchNode(deck='SyncFolderDeck')) )) == 2
 
 def test_cards_ids_from_obsidian(col: Collection):

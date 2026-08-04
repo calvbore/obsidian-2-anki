@@ -43,19 +43,17 @@ See `tests/README.md` for full details. Quick reference:
 
 ### Test coverage gaps (post-redesign)
 
-All 27 E2E specs only test one interaction path: click the ribbon sync button → wait for "All done!" → assert card IDs. The following new UI features from the recent redesign have no E2E coverage:
+The redesign's new UI features are now covered by hand-written `ng_` specs. **No test coverage gaps remain** (G#1-G#6 below all covered):
 
-| Feature | Notes |
+| Feature | Coverage |
 |---|---|
-| **ProgressModal** | Progress bar + cancel button during sync |
-| **Cancel button** | Aborting an in-progress sync — should assert no "All done!" fires |
-| **Settings tabs** | Tab-based settings navigation (FolderSuggester, SearchableTable, import/export) |
-| **Context menu** | Right-click file/folder → "Sync Current File" / "Sync Current Folder" |
-| **"Sync Current File" command** | Command palette entry |
-| **"Sync Current Folder" command** | Command palette entry |
-| **Status bar** | Colored text states during/finish/error |
-
-Highest value for future test work: a `ng_cancel_sync` hand-written spec that clicks Cancel during sync to verify the Phase 2a abort fix.
+| **ProgressModal** | `ng_rename_and_cancel` — asserts `h2`, progress bar, status, text during cancel |
+| **Cancel button** | `ng_rename_and_cancel` — clicks Cancel mid-sync, asserts `syncAborted` + disabled button |
+| **Settings tabs** | `ng_settings_ui` — navigates General/Note Types/Folders/Syntax/Advanced, asserts active-tab switching + searchable table |
+| **Context menu** | `ng_scoped_sync` — real right-click file/folder → "Sync to Anki" / "Sync Folder to Anki" |
+| **"Sync Current File" command** | `ng_scoped_sync` — `executeCommandById('obsidian-2-anki:anki-sync-current-file')` |
+| **"Sync Current Folder" command** | `ng_scoped_sync` — `executeCommandById('obsidian-2-anki:anki-sync-current-folder')` |
+| **Status bar** | `ng_file_rename` — asserts idle `Anki` before sync and `Synced` (success) after |
 
 ## Release
 

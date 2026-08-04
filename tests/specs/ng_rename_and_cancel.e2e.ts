@@ -177,6 +177,12 @@ describe(test_name_fmt, () => {
         // Aggressively find and click the cancel button
         var cancelled = false;
         var abortedImmediate = false;
+        var wasDisabled = false;
+        var nowDisabled = false;
+        var modalH2 = '';
+        var hasBar = false;
+        var hasStatus = false;
+        var hasText = false;
         for (var attempt = 0; attempt < 50; attempt++) {
             var btnInfo = await browser.execute(() => {
                 var modal = document.querySelector('.anki-progress-modal');
@@ -184,6 +190,12 @@ describe(test_name_fmt, () => {
                 var btn = modal.querySelector('button') as HTMLButtonElement;
                 if (!btn) return null;
                 var wasDisabled = btn.disabled;
+                // Capture modal DOM structure BEFORE the click — the cancel handler
+                // synchronously closes the modal and empties its content
+                var modalH2 = modal.querySelector('h2')?.textContent || '';
+                var hasBar = !!modal.querySelector('.anki-progress-bar');
+                var hasStatus = !!modal.querySelector('.anki-progress-status');
+                var hasText = !!modal.querySelector('.anki-progress-text');
                 // Use dispatchEvent for reliable click triggering
                 btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
                 var nowDisabled = btn.disabled;
@@ -192,6 +204,10 @@ describe(test_name_fmt, () => {
                     wasDisabled: wasDisabled,
                     nowDisabled: nowDisabled,
                     syncAborted: p?.syncAborted === true,
+                    modalH2: modalH2,
+                    hasBar: hasBar,
+                    hasStatus: hasStatus,
+                    hasText: hasText,
                     found: true
                 });
             });
@@ -199,6 +215,12 @@ describe(test_name_fmt, () => {
                 var info = JSON.parse(btnInfo);
                 console.log('Cancel button click result:', JSON.stringify(info));
                 abortedImmediate = info.syncAborted;
+                wasDisabled = info.wasDisabled;
+                nowDisabled = info.nowDisabled;
+                modalH2 = info.modalH2;
+                hasBar = info.hasBar;
+                hasStatus = info.hasStatus;
+                hasText = info.hasText;
                 cancelled = true;
                 break;
             }
@@ -207,13 +229,24 @@ describe(test_name_fmt, () => {
 
         console.log('cancelled:', cancelled, 'abortedImmediate:', abortedImmediate);
         if (cancelled) {
+            // 8.4 ProgressModal assertions: modal DOM built by ProgressModal.onOpen()
+            assert(modalH2 === 'Syncing with Anki', `ProgressModal h2 should be "Syncing with Anki", got "${modalH2}"`);
+            assert(hasBar === true, 'ProgressModal should render .anki-progress-bar');
+            assert(hasStatus === true, 'ProgressModal should render .anki-progress-status');
+            assert(hasText === true, 'ProgressModal should render .anki-progress-text');
             assert(abortedImmediate === true, 'plugin.syncAborted should be true immediately after Cancel click');
+            assert(wasDisabled === false, 'Cancel button should be enabled before the click');
+            assert(nowDisabled === true, 'Cancel button should be disabled after the click (ProgressModal.ts sets disabled=true)');
         } else {
-            console.log('Cancel button not found — sync completed too fast');
+            assert.fail('Cancel button never appeared — ProgressModal did not render');
         }
 
         // Wait for sync to settle
         await delay(3000);
+
+        // The cancel handler closes the modal synchronously (main.ts progressModal.close())
+        const modalGone = await browser.execute(() => !document.querySelector('.anki-progress-modal'));
+        assert(modalGone, 'ProgressModal should be closed after Cancel');
 
         // If we clicked cancel, check that syncAborted was set (proves cancel works)
         // Note: "All done!" may still appear if sync completed before the click took effect

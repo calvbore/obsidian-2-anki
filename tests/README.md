@@ -198,6 +198,11 @@ logs/<test_name>/
 | `target_deck` | TARGET DECK directive (same/next line) | 2 Basic | — |
 | `ng_basic_update` | Note update lifecycle (re-sync after content change) | 1 Basic | — |
 | `ng_delete_sync` | Note delete via DELETE line | 0 (empty) | — |
+| `ng_file_rename` | File rename: `file_hashes` migration + status bar states (idle `Anki` → success `Synced`) | 3 Basic | — |
+| `ng_folder_rename` | Folder rename: `FOLDER_DECKS`/`FOLDER_TAGS`/`ScanDirectory`/`file_hashes` migration | 3 Basic | `FOLDER_DECKS` + `FOLDER_TAGS` + `ScanDirectory` |
+| `ng_rename_and_cancel` | Folder rename + content sync in one cycle; Cancel button abort (asserts `syncAborted` + button enabled→disabled); ProgressModal DOM (`h2`, progress bar/status/text) + modal closed after cancel; hard-fails if the modal never renders | 3 Basic | — |
+| `ng_scoped_sync` | Scoped sync: command palette `Sync Current File`/`Sync Current Folder` + context menu `Sync to Anki`/`Sync Folder to Anki`; scope verified via which files receive IDs | 9 Basic | — |
+| `ng_settings_ui` | Settings tab navigation (General/Note Types/Folders/Syntax/Advanced), active-tab switching, searchable table (asserts rendered rows + live search filtering via the real `input` event) | 0 (UI-only, no sync) | — |
 
 ## Key Infrastructure Details
 
