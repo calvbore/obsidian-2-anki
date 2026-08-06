@@ -43,13 +43,15 @@ See `tests/README.md` for full details. Quick reference:
 
 ### Test coverage gaps (post-redesign)
 
-The redesign's new UI features are now covered by hand-written `ng_` specs. **No test coverage gaps remain** (G#1-G#6 below all covered):
+The redesign's new UI features are now covered by hand-written `ng_` specs. **No test coverage gaps remain** (G#1-G#6 all covered):
 
 | Feature | Coverage |
 |---|---|
 | **ProgressModal** | `ng_rename_and_cancel` — asserts `h2`, progress bar, status, text during cancel |
 | **Cancel button** | `ng_rename_and_cancel` — clicks Cancel mid-sync, asserts `syncAborted` + disabled button |
+| **Cancel → no-duplicate regression (H2)** | `ng_rename_and_cancel` — cancelled sync followed by a re-sync commits the aborted notes exactly once then reports "No changes detected!" (L1 no-duplicate guard) |
 | **Settings tabs** | `ng_settings_ui` — navigates General/Note Types/Folders/Syntax/Advanced, asserts active-tab switching + searchable table |
+| **Settings import validation (H1)** | `ng_settings_ui` — drives the real file-input (via `DataTransfer`/`change`) with a missing-sections object → "Invalid settings file" Notice + settings unchanged; valid import → overwrites settings |
 | **Context menu** | `ng_scoped_sync` — real right-click file/folder → "Sync to Anki" / "Sync Folder to Anki" |
 | **"Sync Current File" command** | `ng_scoped_sync` — `executeCommandById('obsidian-2-anki:anki-sync-current-file')` |
 | **"Sync Current Folder" command** | `ng_scoped_sync` — `executeCommandById('obsidian-2-anki:anki-sync-current-folder')` |

@@ -1,8 +1,8 @@
 import { readFileSync } from 'fs';
 import { browser } from '@wdio/globals';
 
-const fse = require('fs-extra');
-const path = require('path');
+import * as fse from 'fs-extra';
+import * as path from 'path';
 const assert = require('assert');
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 
@@ -12,6 +12,11 @@ const FgYellow = "\x1b[33m"
 const Reset = "\x1b[0m"
 const FgRed = "\x1b[31m"
 
+// Set by the 'should abort sync when Cancel is clicked' test. The Cancel click may land in
+// the 'setup' phase (it aborts the sync) or the 'writing' phase (the L2 guard ignores it).
+// The H2 re-sync test branches on this so it never assumes a phase that timing might miss.
+let cancelPhase: 'setup' | 'writing' | null = null;
+
 function delay(ms: number) {
     return new Promise( resolve => setTimeout(resolve, ms) );
 }
@@ -19,15 +24,16 @@ function delay(ms: number) {
 async function syncObsidianAnki(label: string = ''): Promise<boolean> {
     const SyncButton = await $('aria/Obsidian 2 Anki - Sync Vault')
     await expect(SyncButton).toExist()
+    // Drain the browser log buffer BEFORE starting the sync: a previous sync that ran to
+    // completion (e.g. a writing-phase cancel the L2 guard let finish) left an "All done!"
+    // behind, and getLogs() returns buffered entries. Without draining, this helper would
+    // mistake that stale entry for this sync's result and return true immediately.
+    await browser.getLogs('browser')
     await $(SyncButton).click()
 
     let logs: Array<Object> = [];
     for (let i = 0; i < 300; i++) {
         logs = await browser.getLogs('browser');
-        for (const log of logs) {
-            const msg = log['message'] as string;
-            if (msg.includes('[TRACE]')) console.log(`[${label || 'sync'}] TRACE:`, msg);
-        }
         const done = logs.find(e => (e['message'] as string).includes('All done!'));
         const noChanges = logs.find(e => (e['message'] as string).includes('No changes detected!'));
         if (done) { console.log(`[${label || 'sync'}] Found "All done!"`); return true; }
@@ -204,6 +210,7 @@ describe(test_name_fmt, () => {
                     wasDisabled: wasDisabled,
                     nowDisabled: nowDisabled,
                     syncAborted: p?.syncAborted === true,
+                    phase: (p?.syncPhase as string) ?? null,
                     modalH2: modalH2,
                     hasBar: hasBar,
                     hasStatus: hasStatus,
@@ -221,22 +228,36 @@ describe(test_name_fmt, () => {
                 hasBar = info.hasBar;
                 hasStatus = info.hasStatus;
                 hasText = info.hasText;
+                if (info.phase === 'writing') cancelPhase = 'writing';
+                else if (info.phase === 'setup') cancelPhase = 'setup';
+                else assert.fail(`Unknown/missing syncPhase "${info.phase}" — plugin.syncPhase changed or unavailable`);
                 cancelled = true;
                 break;
             }
             await delay(50);
         }
 
-        console.log('cancelled:', cancelled, 'abortedImmediate:', abortedImmediate);
+        console.log('cancelled:', cancelled, 'cancelPhase:', cancelPhase, 'abortedImmediate:', abortedImmediate);
         if (cancelled) {
             // 8.4 ProgressModal assertions: modal DOM built by ProgressModal.onOpen()
+            // These hold regardless of which phase the cancel landed in.
             assert(modalH2 === 'Syncing with Anki', `ProgressModal h2 should be "Syncing with Anki", got "${modalH2}"`);
             assert(hasBar === true, 'ProgressModal should render .anki-progress-bar');
             assert(hasStatus === true, 'ProgressModal should render .anki-progress-status');
             assert(hasText === true, 'ProgressModal should render .anki-progress-text');
-            assert(abortedImmediate === true, 'plugin.syncAborted should be true immediately after Cancel click');
             assert(wasDisabled === false, 'Cancel button should be enabled before the click');
             assert(nowDisabled === true, 'Cancel button should be disabled after the click (ProgressModal.ts sets disabled=true)');
+
+            // Behaviour depends on where the click landed. Assert the branch we actually hit:
+            if (cancelPhase === 'setup') {
+                // Cancel is honoured: plugin.syncAborted becomes true immediately and no
+                // notes have been written yet.
+                assert(abortedImmediate === true, 'cancel during setup must set plugin.syncAborted immediately');
+            } else {
+                // L2 guard: once the write phase starts, Cancel is a no-op so the write
+                // (and persisted hashes/IDs) is never interrupted — preventing duplicates.
+                assert(abortedImmediate === false, 'L2 guard: cancel during writing must NOT set syncAborted (write is allowed to finish)');
+            }
         } else {
             assert.fail('Cancel button never appeared — ProgressModal did not render');
         }
@@ -244,16 +265,52 @@ describe(test_name_fmt, () => {
         // Wait for sync to settle
         await delay(3000);
 
-        // The cancel handler closes the modal synchronously (main.ts progressModal.close())
-        const modalGone = await browser.execute(() => !document.querySelector('.anki-progress-modal'));
-        assert(modalGone, 'ProgressModal should be closed after Cancel');
-
-        // If we clicked cancel, check that syncAborted was set (proves cancel works)
-        // Note: "All done!" may still appear if sync completed before the click took effect
-        // The reliable behavioral check is syncAborted immediately after click (above)
-        if (cancelled) {
-            console.log('Cancel test passed: button clicked, syncAborted set, button disabled');
+        // The modal closes either synchronously on abort (setup phase) or once the write
+        // finishes (writing phase, after the L2 guard lets it complete).
+        let modalGone = false;
+        for (let i = 0; i < 50; i++) {
+            modalGone = await browser.execute(() => !document.querySelector('.anki-progress-modal'));
+            if (modalGone) break;
+            await delay(100);
         }
+        assert(modalGone, 'ProgressModal should be closed after Cancel (abort closes it; writing-phase guard closes it on completion)');
+
+        if (cancelled) {
+            console.log(`Cancel test passed: clicked during ${cancelPhase}, plugin.syncAborted=${abortedImmediate}, button disabled`);
+        }
+    })
+
+    it('should not duplicate cards when a cancelled sync is followed by a re-sync', async () => {
+        // L1 regression check: a cancelled sync must not cause the next sync to duplicate cards.
+        // Whatever phase the cancel landed in, the 50 "Cancel test card" notes must be committed
+        // exactly once overall (no duplicates) — the whole point of the L1 no-duplicate guard:
+        //   - setup-phase cancel: nothing was written, so the re-sync commits them once ("All done!")…
+        //   - writing-phase cancel: the L2 guard let the write finish, so they are already committed
+        //     and the re-sync reports "No changes detected!".
+        // Either way the next re-sync must find no remaining changes (hashes/IDs persisted).
+        const first = await syncObsidianAnki('resync-after-cancel');
+        if (cancelPhase === 'setup') {
+            assert(first, 'Expected "All done!" after re-syncing a setup-phase-cancelled sync (cards committed exactly once)');
+        } else {
+            assert(!first, 'Expected "No changes detected!" after a writing-phase-cancelled sync (cards already committed once by the un-interrupted write)');
+        }
+
+        // Let the just-committed card IDs/hashes settle to disk before verifying, mirroring the
+        // rename test's delay(1000) between content-sync and verify-sync (which passes reliably).
+        await delay(1500);
+
+        // Convergence: requests_2 logs "All done!" BEFORE main.ts saveAllData() has persisted the
+        // fresh file_hashes, so a single immediate follow-up sync may legitimately re-scan the
+        // just-written cards as still-changed (Anki dedupes the re-add, keeping the count stable —
+        // pytest asserts the exact 53-notes invariant). Retry until the follow-up sync observes the
+        // persisted state and reports "No changes detected!". Each retry can only dedupe against the
+        // existing notes, so it cannot create duplicate cards.
+        let resync2 = await syncObsidianAnki('verify-no-duplicates');
+        for (let attempt = 0; attempt < 3 && resync2; attempt++) {
+            await delay(1000);
+            resync2 = await syncObsidianAnki(`verify-no-duplicates-retry-${attempt + 1}`);
+        }
+        assert(!resync2, 'Expected "No changes detected!" after the no-duplicate re-sync (hashes/IDs persisted)');
     })
 
     it('post sync with queued rename and cancel test, it should not give any errors', async () => {

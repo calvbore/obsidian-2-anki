@@ -2,8 +2,8 @@
 import { readFileSync } from 'fs';
 import { browser } from '@wdio/globals';
 
-const fse = require('fs-extra');
-const path = require('path');
+import * as fse from 'fs-extra';
+import * as path from 'path';
 const assert = require('assert');
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 

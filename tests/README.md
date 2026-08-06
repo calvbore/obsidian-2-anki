@@ -2,6 +2,10 @@
 
 This project has two test suites that run sequentially: **E2E (WebdriverIO)** produces Anki collections, then **pytest** validates them.
 
+> **Debugging & history**: `tests/DIAGNOSTICS.md` records the design rationale, the known
+> failure classes, and the fixes for the E2E harness (phase classification, stale plugin
+> builds, log-buffer races, etc.). Read it when a spec is flaky or behaves unexpectedly.
+
 ## Quickstart
 
 ```sh
@@ -46,7 +50,12 @@ npm run test
 ### 1. Prep (`prepare-wdio.sh`)
 - Creates `tests/test_config/`, `tests/test_vault/`, `tests/specs_gen/`, `tests/test_outputs/`
 - Copies `main.js`, `manifest.json`, `styles.css` into the default vault's plugin directory
-- Runs an alpine container as root to scrub all runtime artifacts (test_vault, test_config, test_outputs, specs_gen) leftover from prior runs
+- **Also refreshes every suite vault's plugin copy**: each suite ships its own
+  `.obsidian/plugins/obsidian-2-anki/`, and the per-spec template copies that `.obsidian` over
+  the fresh vault (`overwrite: true`), swapping in the suite's plugin build. Prep keeps all of
+  them in lockstep with the current build so no suite silently tests a stale `main.js`
+  (see D1 in `DIAGNOSTICS.md`).
+- Runs an alpine container as root to scrub all runtime/test_outputs leftover from prior runs
 - Deletes and re-copies from `tests/defaults/` to get clean state
 
 ### 2. Docker image (`Dockerfile`)
@@ -200,9 +209,9 @@ logs/<test_name>/
 | `ng_delete_sync` | Note delete via DELETE line | 0 (empty) | — |
 | `ng_file_rename` | File rename: `file_hashes` migration + status bar states (idle `Anki` → success `Synced`) | 3 Basic | — |
 | `ng_folder_rename` | Folder rename: `FOLDER_DECKS`/`FOLDER_TAGS`/`ScanDirectory`/`file_hashes` migration | 3 Basic | `FOLDER_DECKS` + `FOLDER_TAGS` + `ScanDirectory` |
-| `ng_rename_and_cancel` | Folder rename + content sync in one cycle; Cancel button abort (asserts `syncAborted` + button enabled→disabled); ProgressModal DOM (`h2`, progress bar/status/text) + modal closed after cancel; hard-fails if the modal never renders | 3 Basic | — |
+| `ng_rename_and_cancel` | Folder rename + content sync in one cycle; Cancel button abort (asserts `syncAborted` + button enabled→disabled); ProgressModal DOM (`h2`, progress bar/status/text) + modal closed after cancel; **cancel → re-sync no-duplicate regression (H2)**; hard-fails if the modal never renders | 51 Basic | — |
 | `ng_scoped_sync` | Scoped sync: command palette `Sync Current File`/`Sync Current Folder` + context menu `Sync to Anki`/`Sync Folder to Anki`; scope verified via which files receive IDs | 9 Basic | — |
-| `ng_settings_ui` | Settings tab navigation (General/Note Types/Folders/Syntax/Advanced), active-tab switching, searchable table (asserts rendered rows + live search filtering via the real `input` event) | 0 (UI-only, no sync) | — |
+| `ng_settings_ui` | Settings tab navigation (General/Note Types/Folders/Syntax/Advanced), active-tab switching, searchable table (asserts rendered rows + live search filtering via the real `input` event), **real file-input import validation (H1)** — invalid object → "Invalid settings file" Notice + settings unchanged; valid → overwrite + restore | 0 (UI-only, no sync) | — |
 
 ## Key Infrastructure Details
 
@@ -239,6 +248,8 @@ Two parallel jobs run similar steps (differ in checkout strategy, event variable
 
 Both build the plugin, run `test-wdio` and `test-py` with `sudo`, publish JUnit XML results to a PR comment, publish screenshots via CML, and upload build artifacts. JUnit reports land in `logs/test-reports/`.
 
+Each worker writes its own Wdio JUnit report as `wdio-<cid>.xml` (see `wdio.conf.ts` `outputFileFormat`), so every suite's results are reported rather than only the last worker's `wdio.xml` (pre-L4 behavior). The pytest JUnit is a single `pytest.xml`.
+
 ## File Layout Reference
 
 | Path | Purpose |
@@ -246,7 +257,7 @@ Both build the plugin, run `test-wdio` and `test-py` with `sudo`, publish JUnit 
 | `tests/defaults/test_vault/` | Clean Obsidian vault template (with plugin registered) |
 | `tests/defaults/test_config/` | Clean Obsidian/Anki config template (with empty Anki collection) |
 | `tests/defaults/test_config/.local/share/Anki2default/` | Pristine Anki profile (copied fresh between tests, preserved as source) |
-| `tests/defaults/test_vault_suites/<name>/` | Per-suite markdown files + optional `.obsidian/` plugin config |
+| `tests/defaults/test_vault_suites/<name>/` | Per-suite markdown files + optional `.obsidian/` plugin config. **Each suite that carries a plugin dir also ships its own `main.js` copy** (refreshed by prep — see §1) |
 | `tests/defaults/specs/template.e2e.ts` | Base E2E spec template |
 | `tests/specs_gen/` | Auto-generated E2E specs (gitignored) |
 | `tests/specs/` | Hand-written E2E specs (`ng_` prefix) |

@@ -1,7 +1,7 @@
 import { browser } from '@wdio/globals';
 
-const fse = require('fs-extra');
-const path = require('path');
+import * as fse from 'fs-extra';
+import * as path from 'path';
 const assert = require('assert');
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 
@@ -138,6 +138,52 @@ async function clickTab(name: string): Promise<void> {
     await delay(300);
 }
 
+// Return a deep JSON copy of the live plugin settings object.
+async function getPluginSettings(): Promise<any> {
+    const raw = await browser.execute(() => {
+        const p = (window as any).app.plugins.plugins['obsidian-2-anki'];
+        return p?.settings ? JSON.stringify(p.settings) : 'NO_PLUGIN';
+    });
+    return JSON.parse(raw as string);
+}
+
+// Read the text of any currently-visible Obsidian Notice elements.
+async function visibleNotices(): Promise<string[]> {
+    const raw = await browser.execute(() => {
+        const els = Array.from(document.querySelectorAll('.notice')) as HTMLElement[];
+        return JSON.stringify(els.map(e => e.textContent || '').filter(t => t));
+    });
+    return JSON.parse(raw as string);
+}
+
+// Drive the plugin's real Import handler without a native file dialog: the Import
+// button's onClick creates an <input type=file> and calls .click(). We temporarily
+// patch HTMLInputElement.prototype.click so file inputs get a synthetic File injected
+// via DataTransfer + a 'change' event — same thing the browser does after a real pick.
+// This runs the plugin's genuine JSON.parse + validation + settings overwrite path.
+async function driveImport(jsonStr: string): Promise<void> {
+    await browser.execute((contents) => {
+        const origClick = HTMLInputElement.prototype.click;
+        HTMLInputElement.prototype.click = function (this: HTMLInputElement) {
+            if (this.type === 'file') {
+                const dt = new DataTransfer();
+                dt.items.add(new File([contents], 'settings.json', { type: 'application/json' }));
+                Object.defineProperty(this, 'files', { value: dt.files, configurable: true });
+                this.dispatchEvent(new Event('change', { bubbles: true }));
+                return;
+            }
+            return origClick.call(this);
+        };
+        try {
+            const btns = Array.from(document.querySelectorAll('.anki-tab-content button')) as HTMLButtonElement[];
+            const importBtn = btns.find(b => (b.textContent || '').trim() === 'Import');
+            (importBtn as any)?.click();
+        } finally {
+            HTMLInputElement.prototype.click = origClick;
+        }
+    }, jsonStr);
+}
+
 describe(test_name_fmt, () => {
     it('should load the vault and plugin', async () => {
         try {
@@ -264,6 +310,42 @@ describe(test_name_fmt, () => {
         assert.strictEqual(state.hasExportButton, true, 'Advanced tab should show an Export button');
         assert.strictEqual(state.hasImportButton, true, 'Advanced tab should show an Import button');
         assert.ok(state.visibleText.includes('Import/Export Settings'), 'Advanced tab should show its heading');
+    })
+
+    it('should reject an invalid settings import and keep settings unchanged', async () => {
+        const before = await getPluginSettings();
+        assert.deepStrictEqual(before, before, 'plugin.settings should be readable');
+
+        // Invalid: object missing required sections (Defaults/Syntax/CUSTOM_REGEXPS).
+        await driveImport('{"Name": "only-a-name"}');
+
+        // Let the async FileReader.onload + validation run.
+        await delay(600);
+
+        const notices = await visibleNotices();
+        assert(notices.some(n => n.includes('Invalid settings file')), 'expected an "Invalid settings file" Notice, got: ' + JSON.stringify(notices));
+
+        const after = await getPluginSettings();
+        assert.deepStrictEqual(after, before, 'plugin.settings should be unchanged after an invalid import');
+    })
+
+    it('should import valid settings and overwrite plugin.settings', async () => {
+        const before = await getPluginSettings();
+        // Build a valid file: clone current settings and change a distinctive key.
+        const valid = JSON.parse(JSON.stringify(before));
+        valid.Defaults['Tag'] = 'ImportTagH1';
+
+        await driveImport(JSON.stringify(valid));
+        await delay(600);
+
+        const after = await getPluginSettings();
+        assert.strictEqual(after.Defaults['Tag'], 'ImportTagH1', 'valid import should overwrite settings ("Tag" change)');
+
+        // Restore the original settings so subsequent tests see a normal config.
+        await driveImport(JSON.stringify(before));
+        await delay(600);
+        const restored = await getPluginSettings();
+        assert.deepStrictEqual(restored, before, 'settings should be restored after re-importing the original config');
     })
 
     it('should return to General tab after visiting others', async () => {

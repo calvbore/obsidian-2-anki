@@ -1,8 +1,8 @@
 import { readFileSync } from 'fs';
 import { browser } from '@wdio/globals';
 
-const fse = require('fs-extra');
-const path = require('path');
+import * as fse from 'fs-extra';
+import * as path from 'path';
 const assert = require('assert');
 
 const test_name = (path.basename(__filename) as string).split('.')[0] 
@@ -24,10 +24,6 @@ async function syncObsidianAnki(label: string = ''): Promise<boolean> {
     let logs: Array<Object> = [];
     for (let i = 0; i < 300; i++) {
         logs = await browser.getLogs('browser');
-        for (const log of logs) {
-            const msg = log['message'] as string;
-            if (msg.includes('[TRACE]')) console.log(`[${label || 'sync'}] TRACE:`, msg);
-        }
         const done = logs.find(e => (e['message'] as string).includes('All done!'));
         const noChanges = logs.find(e => (e['message'] as string).includes('No changes detected!'));
         if (done) { console.log(`[${label || 'sync'}] Found "All done!"`); return true; }

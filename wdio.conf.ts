@@ -201,7 +201,7 @@ export const config/* : Options.Testrunner */ = {
         [ 'junit', {
             outputDir: 'logs/test-reports/',
             outputFileFormat: function(options) { // optional
-                return `wdio.xml`
+                return `wdio-${options.cid}.xml`
             },
             errorOptions: {
                 error: 'message',

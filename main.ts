@@ -17,6 +17,7 @@ export default class MyPlugin extends Plugin {
 	statusBarItem: HTMLElement
 	isSyncing: boolean = false
 	syncAborted: boolean = false
+	syncPhase: 'setup' | 'writing' = 'setup'
 	settingsTab: SettingsTab | undefined
 	renameQueue: Array<{ oldPath: string; newPath: string; isFolder: boolean }> = []
 
@@ -138,7 +139,7 @@ export default class MyPlugin extends Plugin {
 		return current_data.fields_dict
 	}
 
-async saveAllData(): Promise<void> {
+	async saveAllData(): Promise<void> {
 		await this.saveData(
 			{
 				settings: this.settings,
@@ -232,6 +233,13 @@ async saveAllData(): Promise<void> {
 		this.updateStatusBar("syncing")
 
 		const progressModal = new ProgressModal(this.app, () => {
+			// Once the AnkiConnect write phase starts it cannot be interrupted.
+			// Ignore Cancel so the hashes/IDs written past this point always persist,
+			// otherwise the next sync would re-add the same notes as duplicates.
+			if (this.syncPhase === 'writing') {
+				new Notice("Sync is already writing to Anki and can't be cancelled. It will finish shortly.")
+				return
+			}
 			this.syncAborted = true
 			progressModal.close()
 			this.updateStatusBar("idle")
@@ -254,11 +262,9 @@ async saveAllData(): Promise<void> {
 			}
 
 			progressModal.setStatus("Connected to Anki! Preparing files...")
-			console.info("[TRACE] Connected to Anki")
 			if (this.syncAborted) { return }
 
 			const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
-			console.info("[TRACE] settingToData done")
 			if (this.syncAborted) { return }
 
 			let filesToSync: TFile[]
@@ -283,20 +289,16 @@ async saveAllData(): Promise<void> {
 				filesToSync = files
 			}
 
-			console.info("[TRACE] filesToSync count: " + filesToSync.length)
 			progressModal.setStatus(`Syncing ${scope}...`)
 			progressModal.setProgress(0, 1, `Found ${filesToSync.length} file(s)`)
 
 			const manager = new FileManager(this.app, data, filesToSync, this.file_hashes, this.added_media)
 
 			progressModal.setStatus("Scanning files for changes...")
-			console.info("[TRACE] Before initialiseFiles")
 			await manager.initialiseFiles()
-			console.info("[TRACE] After initialiseFiles")
 			if (this.syncAborted) { return }
 
 			const changedFilesCount = manager.ownFiles.length
-			console.info("[TRACE] changedFilesCount: " + changedFilesCount)
 			if (changedFilesCount === 0) {
 				new Notice("No changes detected!")
 				console.info("No changes detected!")
@@ -308,10 +310,8 @@ async saveAllData(): Promise<void> {
 
 			progressModal.setProgress(1, 2, `Processing ${changedFilesCount} changed file(s)...`)
 
-			console.info("[TRACE] Before requests_1")
+			this.syncPhase = 'writing'
 			await manager.requests_1()
-			console.info("[TRACE] After requests_1")
-			if (this.syncAborted) { return }
 
 			this.added_media = Array.from(manager.added_media_set)
 			const hashes = manager.getHashes()
@@ -342,6 +342,7 @@ async saveAllData(): Promise<void> {
 		} finally {
 			this.isSyncing = false
 			this.syncAborted = false
+			this.syncPhase = 'setup'
 
 			// Process any queued rename migrations
 			while (this.renameQueue.length > 0) {
@@ -352,7 +353,7 @@ async saveAllData(): Promise<void> {
 	}
 
 	private async applyMigration(oldPath: string, newPath: string, isFolder: boolean): Promise<void> {
-		console.log('[applyMigration] called:', { oldPath, newPath, isFolder, file_hashes_before: { ...this.file_hashes }, FOLDER_DECKS_before: { ...this.settings.FOLDER_DECKS }, FOLDER_TAGS_before: { ...this.settings.FOLDER_TAGS }, ScanDir_before: this.settings.Defaults["Scan Directory"] })
+		console.log(`[applyMigration] ${oldPath} -> ${newPath} (folder: ${isFolder})`)
 		const migrateRecord = (rec: Record<string, string>) => {
 			if (!rec) return
 			for (const key of Object.keys(rec)) {
@@ -380,10 +381,8 @@ async saveAllData(): Promise<void> {
 			// when a folder is renamed — the folder event is the only one.
 			for (const key of Object.keys(this.file_hashes)) {
 				if (key.startsWith(oldPrefix)) {
-					if (key in this.file_hashes) {
-						this.file_hashes[newPath + key.slice(oldPath.length)] = this.file_hashes[key]
-						delete this.file_hashes[key]
-					}
+					this.file_hashes[newPath + key.slice(oldPath.length)] = this.file_hashes[key]
+					delete this.file_hashes[key]
 				}
 			}
 
@@ -393,7 +392,6 @@ async saveAllData(): Promise<void> {
 			this.file_hashes[newPath] = this.file_hashes[oldPath]
 			delete this.file_hashes[oldPath]
 		}
-		console.log('[applyMigration] after:', { file_hashes_after: { ...this.file_hashes }, FOLDER_DECKS_after: { ...this.settings.FOLDER_DECKS }, FOLDER_TAGS_after: { ...this.settings.FOLDER_TAGS }, ScanDir_after: this.settings.Defaults["Scan Directory"] })
 		await this.saveAllData()
 	}
 
@@ -465,13 +463,13 @@ async saveAllData(): Promise<void> {
 		// Rename event handler — migrate FOLDER_DECKS, FOLDER_TAGS, file_hashes, Scan Directory
 		this.registerEvent(
 			this.app.vault.on('rename', async (file: TAbstractFile, oldPath: string) => {
-				console.log('[rename handler] event:', { oldPath, newPath: file.path, isFolder: file instanceof TFolder, isSyncing: this.isSyncing })
+				console.log(`[rename handler] ${oldPath} -> ${file.path} (folder: ${file instanceof TFolder})`)
 				// If a sync is in progress, queue the migration to run after sync completes.
 				// In-flight sync closures hold ref-copies of FOLDER_DECKS/FOLDER_TAGS;
 				// mutating them mid-sync would silently drop overrides for files at old paths.
 				if (this.isSyncing) {
 					this.renameQueue.push({ oldPath, newPath: file.path, isFolder: file instanceof TFolder })
-					new Notice("Folder/file rename queued — migration will apply after sync completes")
+					new Notice(`${file instanceof TFolder ? 'Folder' : 'File'} rename queued — migration will apply after sync completes`)
 					return
 				}
 				await this.applyMigration(oldPath, file.path, file instanceof TFolder)

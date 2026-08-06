@@ -277,6 +277,12 @@ Vagrantfile
 # Complied Plugin Outputs
 main.js
 
+# Per-suite plugin copies (refreshed each run by prepare-wdio.sh; suite data.json IS tracked)
+# Suite vaults keep a tracked per-suite plugin config at data.json, but the manifest/styles
+# are build artifacts copied over the fresh vault by the spec template (overwrite:true).
+tests/defaults/test_vault_suites/*/.obsidian/plugins/obsidian-2-anki/manifest.json
+tests/defaults/test_vault_suites/*/.obsidian/plugins/obsidian-2-anki/styles.css
+
 tests/test_config/*
 tests/test_vault/*
 tests/specs_gen/*
