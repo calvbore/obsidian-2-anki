@@ -2,10 +2,6 @@
 
 This project has two test suites that run sequentially: **E2E (WebdriverIO)** produces Anki collections, then **pytest** validates them.
 
-> **Debugging & history**: `tests/DIAGNOSTICS.md` records the design rationale, the known
-> failure classes, and the fixes for the E2E harness (phase classification, stale plugin
-> builds, log-buffer races, etc.). Read it when a spec is flaky or behaves unexpectedly.
-
 ## Quickstart
 
 ```sh
@@ -24,7 +20,7 @@ npm run test
 ├── npm run test-wdio
 │   ├── npm run prep-wdio    # prepare vault/config, copy plugin build, generate specs from test_vault_suites/
 │   ├── docker build          # build anki-obsidian image (Obsidian + Anki + Chrome)
-│   └── wdio run              # 26 parallel workers, 1 spec each
+│   └── wdio run              # 34 spec files, 1 worker each (maxInstances: 1)
 │       ├── per spec:
 │       │   ├── copy suite files into vault
 │       │   ├── trigger permission reset
@@ -53,8 +49,7 @@ npm run test
 - **Also refreshes every suite vault's plugin copy**: each suite ships its own
   `.obsidian/plugins/obsidian-2-anki/`, and the per-spec template copies that `.obsidian` over
   the fresh vault (`overwrite: true`), swapping in the suite's plugin build. Prep keeps all of
-  them in lockstep with the current build so no suite silently tests a stale `main.js`
-  (see D1 in `DIAGNOSTICS.md`).
+  them in lockstep with the current build so no suite silently tests a stale `main.js`.
 - Runs an alpine container as root to scrub all runtime/test_outputs leftover from prior runs
 - Deletes and re-copies from `tests/defaults/` to get clean state
 
@@ -121,6 +116,8 @@ Each `test_<name>.py` reads `tests/test_outputs/<name>/Anki2/User 1/collection.a
 Exceptions:
 - `test_ignore_setting.py` and `test_folder_scan.py` add a 6th test for files that should produce zero cards
 - `test_ng_delete_sync.py` has only `test_col_exists` (asserts collection is empty — the delete removed everything)
+- `test_cloze_brace.py` adds `test_rendered_cards_balanced` (asserts `question()`/`answer()` render brace-balanced math via the real Anki engine)
+- `test_basic_brace.py` adds `test_non_cloze_text_not_altered` (direct `FormatConverter.format` gate checks, no collection) and imports `obsidian_to_anki`
 
 **Conventions:**
 - Module-level `col_path` points to the Anki collection file (string literal or derived via `os.path.basename(__file__)[5:-3]`)
@@ -182,7 +179,9 @@ logs/<test_name>/
 |---|---|---|---|
 | `basic_para` | Header-as-front via custom regex `^#{2,}` | 4 Basic | `CUSTOM_REGEXPS` |
 | `basic_para_3` | `###`-only headers via `^#{3,}` | 4 Basic | `CUSTOM_REGEXPS` |
+| `basic_brace` | Literal `{{c1::…}}` left untouched in non-Cloze (Basic) notes — sanitize scoped to Cloze models | 2 Basic | — |
 | `basic_sync` | START/END syntax, explicit fields, multi-line, `<br />` | 3 Basic | — |
+| `cloze_brace` | Cloze content ending in brace groups (`a^{1}`) or containing fractions (`\frac{a^{1}}{2}`) sanitized for Anki's first-`}}` tokenizer | 3 Cloze | `CUSTOM_REGEXPS` |
 | `cloze_highlight` | `==highlight==` → cloze via CurlyCloze | 3 Cloze | `CurlyCloze - Highlights to Clozes` |
 | `cloze_para` | Custom cloze paragraph regex | 5 Cloze | `CUSTOM_REGEXPS` + `CurlyCloze` |
 | `cloze_sync` | START Cloze ... END, `{{c1::}}` custom IDs | 16 Cloze | — |
@@ -285,7 +284,7 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 
 **Key differences from the E2E pipeline:**
 - No WebDriver/Chrome — you interact via noVNC in the browser
-- No per-spec isolation — all 27 suites are copied into a single vault
+- No per-spec isolation — all 34 suites are copied into a single vault
 - Plugin `data.json` uses curated defaults (not per-suite configs)
 - Vault is at `/tmp/interactive-test-vault/`, config at `/tmp/interactive-test-config/` — both cleaned up on exit (pass `--dry-run` to preserve)
 - `docker rm -f` before start clears stale containers from interrupted runs
@@ -298,7 +297,7 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 3. Container starts with S6 init (handles X11, VNC, window manager)
 4. Custom `autostart` restores pristine Anki profile, launches Anki (background), waits for AnkiConnect, then launches Obsidian (background) and blocks on it. After Obsidian closes it kills Anki gracefully, then signals S6 init to stop the container.
 5. `obsidian.json` has `"open":true` — Obsidian auto-opens the vault
-6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 27 test suites
+6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 34 test suites
 7. User connects via browser at `localhost:8080` (VNC password: `abc`)
 8. User enables community plugins, trusts both plugins, opens notes, clicks "Sync Entire Vault", sees cards in Anki
 9. Closing Obsidian stops the container

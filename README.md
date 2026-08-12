@@ -85,7 +85,7 @@ Current features (check out the wiki for more details):
 * **Auto-deleting notes from the file**.
 * **Reading from all files in a directory automatically** - recursively too!
 * **Inline Notes** - Shorter syntax for typing out notes on a single line.
-* **Easy cloze formatting** - A more compact syntax to do Cloze text
+* **Easy cloze formatting** - A more compact syntax to do Cloze text. Cloze content containing LaTeX brace groups (e.g. `{{c1::a^{1}}}` or `\frac{a^{1}}{2}`) is normalized so Anki renders it correctly, and literal `{{cN::…}}` text in non-cloze note types is left untouched.
 * **Frozen Fields**
 * **Obsidian integration** - A link to the file that made the flashcard, full link and image embed support.
 * **Custom syntax** - Using **regular expressions**, add custom syntax to generate **notes that make sense for you.** Some examples:
@@ -143,7 +143,7 @@ npm run sandbox -- --dev   # Dev mode (rollup watch + hot-reload)
 npm run sandbox -- --dry-run  # Setup vault/config only, no Docker
 ```
 
-Connect to `http://localhost:8080` (VNC password: `abc`). The vault is populated from all 27 test suites. Anki launches in dark mode by default. If Ctrl+C fails to stop the container:
+Connect to `http://localhost:8080` (VNC password: `abc`). The vault is populated from all 34 test suites. Anki launches in dark mode by default. If Ctrl+C fails to stop the container:
 
 ```sh
 npm run kill-sandbox
