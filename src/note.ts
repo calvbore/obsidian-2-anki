@@ -172,7 +172,8 @@ export class Note extends AbstractNote {
             fields[key] = this.formatter.format(
                 fields[key].trim(),
                 this.note_type.includes("Cloze") && this.curly_cloze,
-				this.highlights_to_cloze
+				this.highlights_to_cloze,
+                this.note_type.includes("Cloze")
             ).trim()
         }
         return fields
@@ -234,7 +235,8 @@ export class InlineNote extends AbstractNote {
             fields[key] = this.formatter.format(
                 fields[key].trim(),
                 this.note_type.includes("Cloze") && this.curly_cloze,
-				this.highlights_to_cloze
+				this.highlights_to_cloze,
+                this.note_type.includes("Cloze")
             ).trim()
         }
         return fields
@@ -287,7 +289,8 @@ export class RegexNote {
             fields[key] = this.formatter.format(
                 fields[key].trim(),
                 this.note_type.includes("Cloze") && this.curly_cloze,
-				this.highlights_to_cloze
+				this.highlights_to_cloze,
+                this.note_type.includes("Cloze")
             ).trim()
         }
         return fields

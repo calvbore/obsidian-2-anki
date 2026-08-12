@@ -14,6 +14,7 @@ const INLINE_CODE_REPLACE:string = "OBSTOANKICODEINLINE"
 const DISPLAY_CODE_REPLACE:string = "OBSTOANKICODEDISPLAY"
 
 const CLOZE_REGEXP:RegExp = /(?:(?<!{){(?:c?(\d+)[:|])?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))/g
+const CLOZE_START_REGEXP:RegExp = /\{\{c\d+(?:,\d+)*::/
 
 const IMAGE_EXTS: string[] = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".tiff"]
 const AUDIO_EXTS: string[] = [".wav", ".m4a", ".flac", ".mp3", ".wma", ".aac", ".webm"]
@@ -143,7 +144,89 @@ export class FormatConverter {
 		return note_text
 	}
 
-	format(note_text: string, cloze: boolean, highlights_to_cloze: boolean): string {
+	clozeStart(text: string, at: number): string | null {
+		const match = CLOZE_START_REGEXP.exec(text.slice(at))
+		return match !== null && match.index === 0 ? match[0] : null
+	}
+
+	processCloze(text: string, start: number, prefix: string): [string, number] {
+		let i: number = start + prefix.length
+		let balance: number = 0
+		let content: string = ""
+		while (i < text.length) {
+			const ch: string = text[i]
+			// Escaped braces don't affect balance
+			if (ch === "\\" && i + 1 < text.length && (text[i + 1] === "{" || text[i + 1] === "}")) {
+				content += ch + text[i + 1]
+				i += 2
+				continue
+			}
+			// Nested clozes are sanitized recursively and counted as self-balanced
+			const nested = this.clozeStart(text, i)
+			if (nested !== null) {
+				const processed = this.processCloze(text, i, nested)
+				content += processed[0]
+				i = processed[1]
+				continue
+			}
+			if (ch === "{") {
+				balance += 1
+				content += "{"
+				i += 1
+				continue
+			}
+			if (ch === "}") {
+				if (balance >= 1) {
+					balance -= 1
+					content += "}"
+					// Split any "}}" inside the content with a space so Anki's
+					// first-"}}" tokenizer isn't triggered by it
+					if (i + 1 < text.length && text[i + 1] === "}") {
+						content += " "
+					}
+					i += 1
+					continue
+				}
+				// balance 0: the "}}" here is the real closer
+				if (i + 1 < text.length && text[i + 1] === "}") {
+					content += "}}"
+					i += 2
+					return [prefix + content, i]
+				}
+				// A lone "}" at balance 0 is stray content, pass it through
+				content += "}"
+				i += 1
+				continue
+			}
+			content += ch
+			i += 1
+		}
+		// Unterminated cloze — leave untouched
+		return [text.slice(start, i), i]
+	}
+
+	sanitizeClozes(text: string): string {
+		/*Ensure that Anki's first-"}}" cloze tokenizer never lands on
+		a "}}" that is inside the intended cloze content. Content ending
+		in a brace group or containing adjacent "}"s gets the pair split
+		with a single space (e.g. "{{c1::a^{1}}}" -> "{{c1::a^{1} }}").*/
+		let result: string = ""
+		let i: number = 0
+		while (i < text.length) {
+			const prefix = this.clozeStart(text, i)
+			if (prefix !== null) {
+				const processed = this.processCloze(text, i, prefix)
+				result += processed[0]
+				i = processed[1]
+			} else {
+				result += text[i]
+				i += 1
+			}
+		}
+		return result
+	}
+
+	format(note_text: string, cloze: boolean, highlights_to_cloze: boolean, sanitizeClozes: boolean = false): string {
 		note_text = this.obsidian_to_anki_math(note_text)
 		//Extract the parts that are anki math
 		let math_matches: string[]
@@ -174,7 +257,7 @@ export class FormatConverter {
 		if (add_highlight_css) {
 			note_text = '<link href="' + c.CODE_CSS_URL + '" rel="stylesheet">' + note_text
 		}
-		return note_text
+		return sanitizeClozes ? this.sanitizeClozes(note_text) : note_text
 	}
 
 

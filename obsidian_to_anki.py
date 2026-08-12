@@ -293,6 +293,7 @@ class FormatConverter:
     CLOZE_REGEXP = re.compile(
         r'(?:(?<!{){(?:c?(\d+)[:|])?(?!{))((?:[^\n][\n]?)+?)(?:(?<!})}(?!}))'
     )
+    CLOZE_START_REGEXP = re.compile(r"\{\{c\d+(?:,\d+)*::")
     URL_REGEXP = re.compile(r'https?://')
 
     PARA_OPEN = "<p>"
@@ -372,6 +373,74 @@ class FormatConverter:
         return text
 
     @staticmethod
+    def _process_cloze(text, start):
+        prefix = FormatConverter.CLOZE_START_REGEXP.match(text, start).group(0)
+        i = start + len(prefix)
+        balance = 0
+        content = []
+        text_len = len(text)
+        while i < text_len:
+            ch = text[i]
+            # Escaped braces don't affect balance
+            if ch == "\\" and i + 1 < text_len and text[i + 1] in "{}":
+                content.append(ch + text[i + 1])
+                i += 2
+                continue
+            # Nested clozes are sanitized recursively and counted as self-balanced
+            nested = FormatConverter.CLOZE_START_REGEXP.match(text, i)
+            if nested is not None:
+                processed, i = FormatConverter._process_cloze(text, i)
+                content.append(processed)
+                continue
+            if ch == "{":
+                balance += 1
+                content.append("{")
+                i += 1
+                continue
+            if ch == "}":
+                if balance >= 1:
+                    balance -= 1
+                    content.append("}")
+                    # Split any "}}" inside the content with a space so
+                    # Anki's first-"}}" tokenizer isn't triggered by it
+                    if i + 1 < text_len and text[i + 1] == "}":
+                        content.append(" ")
+                    i += 1
+                    continue
+                # balance 0: the "}}" here is the real closer
+                if i + 1 < text_len and text[i + 1] == "}":
+                    content.append("}}")
+                    i += 2
+                    return prefix + "".join(content), i
+                # A lone "}" at balance 0 is stray content, pass it through
+                content.append("}")
+                i += 1
+                continue
+            content.append(ch)
+            i += 1
+        # Unterminated cloze — leave untouched
+        return text[start:i], i
+
+    @staticmethod
+    def sanitize_clozes(text):
+        """Ensure Anki's first-"}}" cloze tokenizer never lands on a "}}"
+        that is inside the intended cloze content. Content ending in a brace
+        group or containing adjacent "}"s gets the pair split with a single
+        space (e.g. "{{c1::a^{1}}}" -> "{{c1::a^{1} }}")."""
+        result = []
+        i = 0
+        text_len = len(text)
+        while i < text_len:
+            match = FormatConverter.CLOZE_START_REGEXP.match(text, i)
+            if match is not None:
+                processed, i = FormatConverter._process_cloze(text, i)
+                result.append(processed)
+            else:
+                result.append(text[i])
+                i += 1
+        return "".join(result)
+
+    @staticmethod
     def markdown_parse(text):
         """Apply markdown conversions to text."""
         text = md_parser.reset().convert(text)
@@ -435,7 +504,7 @@ class FormatConverter:
         )
 
     @staticmethod
-    def format(note_text, cloze=False):
+    def format(note_text, cloze=False, sanitize_clozes=False):
         """Apply all format conversions to note_text."""
         note_text = FormatConverter.obsidian_to_anki_math(note_text)
         # Extract the parts that are anki math
@@ -504,7 +573,10 @@ class FormatConverter:
         ):
             note_text = note_text[len(FormatConverter.PARA_OPEN):]
             note_text = note_text[:-len(FormatConverter.PARA_CLOSE)]
-        return note_text
+        return (
+            FormatConverter.sanitize_clozes(note_text)
+            if sanitize_clozes else note_text
+        )
 
 
 class Note:
@@ -562,7 +634,8 @@ class Note:
                 cloze=(
                     "Cloze" in self.note_type
                     and CONFIG_DATA["CurlyCloze"]
-                )
+                ),
+                sanitize_clozes=("Cloze" in self.note_type)
             )
             for key, value in fields.items()
         }
@@ -631,7 +704,8 @@ class InlineNote(Note):
                 cloze=(
                     "Cloze" in self.note_type
                     and CONFIG_DATA["CurlyCloze"]
-                )
+                ),
+                sanitize_clozes=("Cloze" in self.note_type)
             )
             for key, value in fields.items()
         }
@@ -673,7 +747,8 @@ class RegexNote:
                 cloze=(
                     "Cloze" in self.note_type
                     and CONFIG_DATA["CurlyCloze"]
-                )
+                ),
+                sanitize_clozes=("Cloze" in self.note_type)
             )
             for key, value in fields.items()
         }
