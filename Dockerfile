@@ -57,12 +57,12 @@ RUN \
 
 RUN apt-get install -y '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb-xinerama0 libxcb-image0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 gnome-screenshot
 
-RUN echo "**** download anki ****" && curl https://github.com/ankitects/anki/releases/download/2.1.60/anki-2.1.60-linux-qt6.tar.zst -L -o anki.tar.zst
+RUN echo "**** download anki ****" && curl https://github.com/ankitects/anki/releases/download/24.11/anki-24.11-linux-qt6.tar.zst -L -o anki.tar.zst
 RUN chmod +x ./anki.tar.zst && \
     mkdir anki && \
     mkdir /usr/share/desktop-directories && \
     tar --use-compress-program=unzstd -xvf ./anki.tar.zst -C ./anki/ && \ 
-    cd anki/anki-2.1.60-linux-qt6/ && \ 
+    cd anki/anki-24.11-linux-qt6/ && \ 
     chmod +x ./install.sh && \
     ./install.sh
 
