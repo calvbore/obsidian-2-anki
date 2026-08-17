@@ -20,7 +20,7 @@ npm run test
 ├── npm run test-wdio
 │   ├── npm run prep-wdio    # prepare vault/config, copy plugin build, generate specs from test_vault_suites/
 │   ├── docker build          # build anki-obsidian image (Obsidian + Anki + Chrome)
-│   └── wdio run              # 34 spec files, 1 worker each (maxInstances: 1)
+│   └── wdio run              # 36 spec files, 1 worker each (maxInstances: 1)
 │       ├── per spec:
 │       │   ├── copy suite files into vault
 │       │   ├── trigger permission reset
@@ -55,7 +55,7 @@ npm run test
 
 ### 2. Docker image (`Dockerfile`)
 Based on `ghcr.io/linuxserver/baseimage-rdesktop-web:focal-1.2.0-ls101` with:
-- **Anki 2.1.60** (Qt6)
+- **Anki 24.11** (Qt6)
 - **Obsidian 1.5.3** (extracted AppImage)
 - Chrome, SSH, X11 utilities, `gnome-screenshot`
 - Ports: `8080` (VNC web), `8888` (Chrome DevTools)
@@ -118,6 +118,9 @@ Exceptions:
 - `test_ng_delete_sync.py` has only `test_col_exists` (asserts collection is empty — the delete removed everything)
 - `test_cloze_brace.py` adds `test_rendered_cards_balanced` (asserts `question()`/`answer()` render brace-balanced math via the real Anki engine)
 - `test_basic_brace.py` adds `test_non_cloze_text_not_altered` (direct `FormatConverter.format` gate checks, no collection) and imports `obsidian_to_anki`
+- `test_ng_io_sync.py` asserts the stock **Image Occlusion** note type, the exact occlusion cloze string (`{{cN::image-occlusion:rect:…}}`, frame-anchored), the SVG card picture (frame1's text label + embedded image data URI present in the `.svg` inside `collection.media/`), `<div>`-wrapped Header/Back Extra, the **vanilla-parity tag set** (template + `FILE TAGS` + section `Tags:` + `#kidney` from an enabled `Add Obsidian Tags`), and that frame2's section was stripped after `DELETE`
+- `test_ng_io_opt_in.py` asserts the stock Image Occlusion note type for a drawing that was auto-opted in via the file context menu, the SVG picture, and that only the template's default tag applies (no `FILE TAGS`/`Tags:`/`#tag`s in the fixture)
+- `test_io_builder.py` has no collection — pure unit tests of the Python IO builder (`obsidian_io.py`): lz-string decompression (plain + Unicode), scene/fixture parsing, cloze construction with gap-tolerant ordinals, `Key: value` back-of-note parsing incl. `DELETE`/`FROZEN`/`ID`, frame-anchored mask geometry (incl. image-less frames), deterministic SVG picture rendering (golden output, data-URIs, rotation, no-fill objects), SVG-sensitive frame hashes, multi-frame/multi-note extraction, and the **no-leak guarantees**: a frame without a resolvable section link is skipped (never reads another frame's fields), and linked-but-partial sections leave missing fields blank
 
 **Conventions:**
 - Module-level `col_path` points to the Anki collection file (string literal or derived via `os.path.basename(__file__)[5:-3]`)
@@ -132,6 +135,8 @@ Exceptions:
 |---|---|
 | `tests/specs/ng_basic_update.e2e.ts` | Update a note: sync → modify content via DOM (`innerText`) → save (Ctrl+S) → re-sync → verify no errors |
 | `tests/specs/ng_delete_sync.e2e.ts` | Delete a note: sync → add `DELETE` line to DOM → save → re-sync → verify note removed |
+| `tests/specs/ng_io_sync.e2e.ts` | Image Occlusion: first sync adds 2 notes from 2 frames (IDs written); re-sync reports no changes; in-place text edit updates the note; `FROZEN` skips re-sync; `DELETE` removes the Anki note and strips its back-of-note section |
+| `tests/specs/ng_io_opt_in.e2e.ts` | Image Occlusion context-menu UX: right-click "Sync to Anki" on an **unmarked** drawing writes `anki-occlusion: true` and syncs it (ID written); the Enable/Disable "Image Occlusion sync" toggle removes/restores the marker; a final full-vault sync reports no changes (no duplicates) |
 
 These use `ng_` prefix in the suite directory name to prevent auto-generation, and have custom E2E logic beyond the template.
 
@@ -209,6 +214,8 @@ logs/<test_name>/
 | `ng_file_rename` | File rename: `file_hashes` migration + status bar states (idle `Anki` → success `Synced`) | 3 Basic | — |
 | `ng_folder_rename` | Folder rename: `FOLDER_DECKS`/`FOLDER_TAGS`/`ScanDirectory`/`file_hashes` migration | 3 Basic | `FOLDER_DECKS` + `FOLDER_TAGS` + `ScanDirectory` |
 | `ng_rename_and_cancel` | Folder rename + content sync in one cycle; Cancel button abort (asserts `syncAborted` + button enabled→disabled); ProgressModal DOM (`h2`, progress bar/status/text) + modal closed after cancel; **cancel → re-sync no-duplicate regression (H2)**; hard-fails if the modal never renders | 51 Basic | — |
+| `ng_io_sync` | Image Occlusion frames → stock Anki IO notes: first sync creates 1 note/frame (2 masks → `c1`/`c2` cloze); file tags from a `FILE TAGS:` + section `Tags:` + `#kidney` (Add Obsidian Tags); text edit updates in place; `FROZEN` skips re-sync; `DELETE` removes the note on the Anki side and strips its `## …` section from the file (the Element Links entry stays) | 2 cards (1 IO note) | `anki-occlusion`, `deck:` frontmatter |
+| `ng_io_opt_in` | Image Occlusion context-menu UX: "Sync to Anki" on an unmarked drawing auto-writes the marker + syncs (1 note, 1 ID); Enable/Disable toggle removes/restores the marker; final full sync reports no changes | 1 card (1 IO note) | (none — auto marker) |
 | `ng_scoped_sync` | Scoped sync: command palette `Sync Current File`/`Sync Current Folder` + context menu `Sync to Anki`/`Sync Folder to Anki`; scope verified via which files receive IDs | 9 Basic | — |
 | `ng_settings_ui` | Settings tab navigation (General/Note Types/Folders/Syntax/Advanced), active-tab switching, searchable table (asserts rendered rows + live search filtering via the real `input` event), **real file-input import validation (H1)** — invalid object → "Invalid settings file" Notice + settings unchanged; valid → overwrite + restore | 0 (UI-only, no sync) | — |
 
@@ -284,8 +291,8 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 
 **Key differences from the E2E pipeline:**
 - No WebDriver/Chrome — you interact via noVNC in the browser
-- No per-spec isolation — all 34 suites are copied into a single vault
-- Plugin `data.json` uses curated defaults (not per-suite configs)
+- No per-spec isolation — all 36 suites are copied into a single vault
+- Plugin `data.json` uses curated defaults (not per-suite configs) — incl. an `Image Occlusion` row in `CUSTOM_REGEXPS`/`FILE_LINK_FIELDS`, so the note type already appears in Obsidian's **Note Types** settings without clicking "Regenerate Note Type Table"
 - Vault is at `/tmp/interactive-test-vault/`, config at `/tmp/interactive-test-config/` — both cleaned up on exit (pass `--dry-run` to preserve)
 - `docker rm -f` before start clears stale containers from interrupted runs
 - Container named `obsidian-to-anki-sandbox` for easy `docker kill`
@@ -297,7 +304,7 @@ npm run kill-sandbox       # Kill container when Ctrl+C fails
 3. Container starts with S6 init (handles X11, VNC, window manager)
 4. Custom `autostart` restores pristine Anki profile, launches Anki (background), waits for AnkiConnect, then launches Obsidian (background) and blocks on it. After Obsidian closes it kills Anki gracefully, then signals S6 init to stop the container.
 5. `obsidian.json` has `"open":true` — Obsidian auto-opens the vault
-6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 34 test suites
+6. Vault has the plugin installed, Hot Reload plugin installed, and markdown notes from all 36 test suites
 7. User connects via browser at `localhost:8080` (VNC password: `abc`)
 8. User enables community plugins, trusts both plugins, opens notes, clicks "Sync Entire Vault", sees cards in Anki
 9. Closing Obsidian stops the container
