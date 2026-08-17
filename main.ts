@@ -4,8 +4,10 @@ import { PluginSettings, ParsedSettings } from './src/interfaces/settings-interf
 import { DEFAULT_IGNORED_FILE_GLOBS, SettingsTab } from './src/settings'
 import { ANKI_ICON } from './src/constants'
 import { settingToData } from './src/setting-to-data'
-import { FileManager } from './src/files-manager'
+import { FileManager, fileHasIOMarker } from './src/files-manager'
 import { ProgressModal } from './src/ui/ProgressModal'
+import { IOFrameRecord } from './src/io'
+import { setIOMarker, clearIOMarker } from './src/excalidraw'
 
 export default class MyPlugin extends Plugin {
 
@@ -14,6 +16,7 @@ export default class MyPlugin extends Plugin {
 	fields_dict: Record<string, string[]>
 	added_media: string[]
 	file_hashes: Record<string, string>
+	io_frame_records: Record<string, IOFrameRecord>
 	statusBarItem: HTMLElement
 	isSyncing: boolean = false
 	syncAborted: boolean = false
@@ -36,7 +39,8 @@ export default class MyPlugin extends Plugin {
 				"Target Deck Line": "TARGET DECK",
 				"File Tags Line": "FILE TAGS",
 				"Delete Note Line": "DELETE",
-				"Frozen Fields Line": "FROZEN"
+				"Frozen Fields Line": "FROZEN",
+				"Hide All Line": "Hide all"
 			},
 			Defaults: {
 				"Scan Directory": "",
@@ -84,14 +88,15 @@ export default class MyPlugin extends Plugin {
 				settings: default_sets,
 				"Added Media": [],
 				"File Hashes": {},
-				fields_dict: {}
+				fields_dict: {},
+				"IO Frame Records": {}
 			}
 		)
 	}
 
 	async loadSettings(): Promise<PluginSettings> {
 		let current_data = await this.loadData()
-		if (current_data == null || Object.keys(current_data).length != 4) {
+		if (current_data == null || !(current_data.hasOwnProperty("settings")) || !(current_data.hasOwnProperty("Added Media"))) {
 			new Notice("Need to connect to Anki generate default settings...")
 			const default_sets = await this.getDefaultSettings()
 			this.saveData(
@@ -99,7 +104,8 @@ export default class MyPlugin extends Plugin {
 					settings: default_sets,
 					"Added Media": [],
 					"File Hashes": {},
-					fields_dict: {}
+					fields_dict: {},
+					"IO Frame Records": {}
 				}
 			)
 			new Notice("Default settings successfully generated!")
@@ -139,13 +145,23 @@ export default class MyPlugin extends Plugin {
 		return current_data.fields_dict
 	}
 
+	async loadIOFrameRecords(): Promise<Record<string, IOFrameRecord>> {
+		let current_data = await this.loadData()
+		if (current_data == null || current_data["IO Frame Records"] == null) {
+			return {}
+		} else {
+			return current_data["IO Frame Records"]
+		}
+	}
+
 	async saveAllData(): Promise<void> {
 		await this.saveData(
 			{
 				settings: this.settings,
 				"Added Media": this.added_media,
 				"File Hashes": this.file_hashes,
-				fields_dict: this.fields_dict
+				fields_dict: this.fields_dict,
+				"IO Frame Records": this.io_frame_records
 			}
 		)
 	}
@@ -264,7 +280,7 @@ export default class MyPlugin extends Plugin {
 			progressModal.setStatus("Connected to Anki! Preparing files...")
 			if (this.syncAborted) { return }
 
-			const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict)
+			const data: ParsedSettings = await settingToData(this.app, this.settings, this.fields_dict, this.io_frame_records)
 			if (this.syncAborted) { return }
 
 			let filesToSync: TFile[]
@@ -298,6 +314,13 @@ export default class MyPlugin extends Plugin {
 			await manager.initialiseFiles()
 			if (this.syncAborted) { return }
 
+			let skippedIO: string[] = []
+			for (let file of manager.ownFiles) {
+				if (file.io_skip_reasons && file.io_skip_reasons.length > 0) {
+					skippedIO.push(...file.io_skip_reasons)
+				}
+			}
+
 			const changedFilesCount = manager.ownFiles.length
 			if (changedFilesCount === 0) {
 				new Notice("No changes detected!")
@@ -327,6 +350,11 @@ export default class MyPlugin extends Plugin {
 				progressModal.close()
 				new Notice(`Successfully synced ${changedFilesCount} file(s) to Anki!`)
 				this.updateStatusBar("success")
+
+				if (skippedIO.length > 0) {
+					new Notice(`${skippedIO.length} Image Occlusion frame(s) skipped. Check the console for the reason.`)
+					console.warn("Image Occlusion frames skipped:", skippedIO)
+				}
 
 				// Reset to idle after 3 seconds
 				setTimeout(() => {
@@ -425,6 +453,45 @@ export default class MyPlugin extends Plugin {
 		container.createSpan({ text: text, cls: className })
 	}
 
+	/**Resolves once Obsidian has re-indexed `file`'s metadata. Obsidian re-parses
+	frontmatter asynchronously after a `vault.modify`, and `getFileCache`/
+	`getCache` are synchronous, so without waiting here a just-written marker
+	would be invisible to `hasIOMarker`/`fileHasIOMarker` and the sync would
+	drop the file again.*/
+	private waitForMetadataRefresh(file: TFile): Promise<void> {
+		return new Promise((resolve) => {
+			let timeout: number
+			const handler = (changedFile: TFile) => {
+				if (changedFile.path === file.path) {
+					window.clearTimeout(timeout)
+					this.app.metadataCache.off('changed', handler)
+					resolve()
+				}
+			}
+			timeout = window.setTimeout(() => {
+				// Safety net: never hang the sync if the event doesn't fire.
+				this.app.metadataCache.off('changed', handler)
+				resolve()
+			}, 2000)
+			this.app.metadataCache.on('changed', handler)
+		})
+	}
+
+	/**Opt an Excalidraw drawing in/out of Image Occlusion sync by writing (or
+	removing) the `anki-occlusion: true` frontmatter marker. No-op when the
+	file is already in the requested state.*/
+	private async setIOOptIn(file: TFile, enabled: boolean): Promise<void> {
+		const content: string = await this.app.vault.read(file)
+		const updated: string = enabled ? setIOMarker(content) : clearIOMarker(content)
+		if (updated === content) {
+			return
+		}
+		const refreshed = this.waitForMetadataRefresh(file)
+		await this.app.vault.modify(file, updated)
+		await refreshed
+		new Notice(enabled ? "Enabled Image Occlusion sync" : "Disabled Image Occlusion sync")
+	}
+
 	async onload() {
 		console.log('loading Obsidian 2 Anki...');
 		addIcon('anki', ANKI_ICON)
@@ -452,6 +519,7 @@ export default class MyPlugin extends Plugin {
 		}
 		this.added_media = await this.loadAddedMedia()
 		this.file_hashes = await this.loadFileHashes()
+		this.io_frame_records = await this.loadIOFrameRecords()
 
 		// Add status bar
 		this.statusBarItem = this.addStatusBarItem()
@@ -509,14 +577,30 @@ export default class MyPlugin extends Plugin {
 		this.registerEvent(
 			this.app.workspace.on('file-menu', (menu: Menu, file: TAbstractFile) => {
 				if (file instanceof TFile && file.extension === 'md') {
+					const isIO = file.name.endsWith('.excalidraw.md')
 					menu.addItem((item) => {
 						item
 							.setTitle('Sync to Anki')
 							.setIcon('anki')
 							.onClick(async () => {
+								// Right-clicking an unmarked Excalidraw drawing and
+								// choosing "Sync to Anki" opts it in automatically.
+								if (isIO && !fileHasIOMarker(this.app, file)) {
+									await this.setIOOptIn(file, true)
+								}
 								await this.syncFiles([file], `file: ${file.name}`)
 							})
 					})
+					if (isIO) {
+						menu.addItem((item) => {
+							const enabled = fileHasIOMarker(this.app, file)
+							item
+								.setTitle(enabled ? "Disable Image Occlusion sync" : "Enable Image Occlusion sync")
+								.onClick(async () => {
+									await this.setIOOptIn(file, !enabled)
+								})
+						})
+					}
 				} else if (file instanceof TFolder) {
 					menu.addItem((item) => {
 						item

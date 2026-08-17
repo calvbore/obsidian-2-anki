@@ -14,11 +14,16 @@ PLUGIN_DIR=".obsidian/plugins/obsidian-2-anki"
 SUITES_DIR="$REPO_DIR/tests/defaults/test_vault_suites"
 CONFIG_SRC="$REPO_DIR/tests/defaults/test_config"
 IMAGE_NAME="anki-obsidian"
+DEMO_SRC="$REPO_DIR/tests/defaults/sandbox_io_demo"
+EXCALIDRAW_VERSION="2.12.4"
+EXCALIDRAW_DIR="$VAULT_DIR/.obsidian/plugins/obsidian-excalidraw-plugin"
+EXCALIDRAW_CACHE="$REPO_DIR/.sandbox-cache/excalidraw-$EXCALIDRAW_VERSION"
 
 # Parse flags
 DEV_MODE=false
 REBUILD=false
 DRY_RUN=false
+EXCALIDRAW_INSTALLED=false
 for arg in "$@"; do
     case "$arg" in
         --dev) DEV_MODE=true ;;
@@ -117,11 +122,18 @@ for suite in "$SUITES_DIR"/*/; do
         cp -Raf "$suite"/* "$VAULT_DIR/" 2>/dev/null || true
     fi
 done
+
+# Add the Image Occlusion demo drawing (tests/defaults/sandbox_io_demo).
+if [ -d "$DEMO_SRC" ]; then
+    cp -Raf "$DEMO_SRC"/* "$VAULT_DIR/" 2>/dev/null || true
+fi
+
 find "$VAULT_DIR" -name '.obsidian' -type d -exec rm -rf {} + 2>/dev/null || true
 
 # Create plugin directories (after find to avoid deletion)
 mkdir -p "$VAULT_DIR/$PLUGIN_DIR"
 mkdir -p "$VAULT_DIR/$HOT_RELOAD_DIR"
+mkdir -p "$EXCALIDRAW_DIR"
 
 # Write data.json
 cat > "$VAULT_DIR/$PLUGIN_DIR/data.json" << 'DATA_EOF'
@@ -132,14 +144,16 @@ cat > "$VAULT_DIR/$PLUGIN_DIR/data.json" << 'DATA_EOF'
       "Basic (and reversed card)": "",
       "Basic (optional reversed card)": "",
       "Basic (type in the answer)": "",
-      "Cloze": ""
+      "Cloze": "",
+      "Image Occlusion": ""
     },
     "FILE_LINK_FIELDS": {
       "Basic": "Front",
       "Basic (and reversed card)": "Front",
       "Basic (optional reversed card)": "Front",
       "Basic (type in the answer)": "Front",
-      "Cloze": "Text"
+      "Cloze": "Text",
+      "Image Occlusion": "Occlusion"
     },
     "CONTEXT_FIELDS": {},
     "FOLDER_DECKS": {},
@@ -152,7 +166,8 @@ cat > "$VAULT_DIR/$PLUGIN_DIR/data.json" << 'DATA_EOF'
       "Target Deck Line": "TARGET DECK",
       "File Tags Line": "FILE TAGS",
       "Delete Note Line": "DELETE",
-      "Frozen Fields Line": "FROZEN"
+      "Frozen Fields Line": "FROZEN",
+      "Hide All Line": "Hide all"
     },
     "Defaults": {
       "Scan Directory": "",
@@ -170,12 +185,14 @@ cat > "$VAULT_DIR/$PLUGIN_DIR/data.json" << 'DATA_EOF'
   },
   "Added Media": [],
   "File Hashes": {},
+  "IO Frame Records": {},
   "fields_dict": {
     "Basic": ["Front", "Back"],
     "Basic (and reversed card)": ["Front", "Back"],
     "Basic (optional reversed card)": ["Front", "Back", "Add Reverse"],
     "Basic (type in the answer)": ["Front", "Back"],
-    "Cloze": ["Text", "Back Extra"]
+    "Cloze": ["Text", "Back Extra"],
+    "Image Occlusion": ["Occlusion", "Image", "Header", "Back Extra", "Comments"]
   }
 }
 DATA_EOF
@@ -207,9 +224,46 @@ else
     mkdir -p "$VAULT_DIR/$HOT_RELOAD_DIR"
 fi
 
+# Download the Excalidraw plugin (powering the Image Occlusion demo drawing).
+# Non-fatal if offline: the demo fixture still syncs from its text drawing block,
+# but the canvas (editing/saving round-trip) needs the plugin. Files are cached
+# in the repo's gitignored .sandbox-cache so repeat runs skip the ~8MB download.
+echo "==> Downloading Excalidraw plugin..."
+mkdir -p "$EXCALIDRAW_CACHE"
+EXCALIDRAW_OK=true
+for file in main.js manifest.json styles.css; do
+    if [ -f "$EXCALIDRAW_CACHE/$file" ] && [ -s "$EXCALIDRAW_CACHE/$file" ]; then
+        echo "    (using cached $file)"
+    elif curl -sfL "https://github.com/zsviczian/obsidian-excalidraw-plugin/releases/download/$EXCALIDRAW_VERSION/$file" \
+        -o "$EXCALIDRAW_CACHE/$file" 2>/dev/null; then
+        echo "    downloaded $file"
+    else
+        rm -f "$EXCALIDRAW_CACHE/$file"
+        echo "    WARNING: could not download $file — Excalidraw plugin not installed."
+        EXCALIDRAW_OK=false
+        break
+    fi
+    cp "$EXCALIDRAW_CACHE/$file" "$EXCALIDRAW_DIR/"
+done
+if [ "$EXCALIDRAW_OK" = true ]; then
+    EXCALIDRAW_INSTALLED=true
+    # Preseed plugin settings: suppresses the first-run release-notes modal.
+    cat > "$EXCALIDRAW_DIR/data.json" << 'EX_EOF'
+{"showReleaseNotes": false}
+EX_EOF
+    echo "    Excalidraw $EXCALIDRAW_VERSION installed."
+else
+    echo "    (Image Occlusion demo still syncs from the drawing's text block.)"
+fi
+
 # Write community-plugins.json
-cat > "$VAULT_DIR/.obsidian/community-plugins.json" << 'CP_EOF'
-["hot-reload", "obsidian-2-anki"]
+if [ "$EXCALIDRAW_INSTALLED" = true ]; then
+    COMMUNITY_PLUGINS_JSON='["hot-reload", "obsidian-2-anki", "obsidian-excalidraw-plugin"]'
+else
+    COMMUNITY_PLUGINS_JSON='["hot-reload", "obsidian-2-anki"]'
+fi
+cat > "$VAULT_DIR/.obsidian/community-plugins.json" << CP_EOF
+$COMMUNITY_PLUGINS_JSON
 CP_EOF
 
 # Write appearance.json for Obsidian dark theme
@@ -248,6 +302,8 @@ if [ "$DRY_RUN" = true ]; then
     echo "  Inspect vault structure:  find $VAULT_DIR -type f | head -40"
     echo "  Check plugin config:     cat $VAULT_DIR/$PLUGIN_DIR/data.json"
     echo "  Check community plugins: cat $VAULT_DIR/.obsidian/community-plugins.json"
+    echo "  Excalidraw plugin:       $(ls "$EXCALIDRAW_DIR" 2>/dev/null | tr '\n' ' ')"
+    echo "  IO demo drawing:         $VAULT_DIR/excalidraw_io_demo.excalidraw.md"
     echo "  Check config files:      ls -la $CONFIG_DIR/.config/obsidian/"
     echo "  Anki profile:            ls $CONFIG_DIR/.local/share/Anki2/"
     echo ""
@@ -262,12 +318,17 @@ echo "=============================================================="
 echo "  Connect:  http://localhost:8080   (VNC password: abc)"
 echo ""
 echo "  First-time setup in Obsidian:"
-echo "  1. Click 'Open Settings' → 'Community plugins' → turn on"
-echo "  2. Enable Obsidian_to_Anki plugin toggle"
-echo "  3. Open a note that contains CARD markers"
-echo "  4. Click 'Sync Vault' in the left ribbon (puzzle icon)"
-echo "  5. Check Anki window for imported cards"
-echo "  6. Close Obsidian to stop the container"
+echo "  1. Click 'Open Settings' → 'Community plugins' → turn on,"
+echo "     then Trust/Enable when Obsidian prompts about the community plugins"
+echo "  2. Enable the Obsidian_to_Anki (and Excalidraw) plugin toggles"
+echo "  3. Open excalidraw_io_demo.excalidraw.md; the Excalidraw tab shows a"
+echo "     labeled anatomy image with an 'Image Occlusion' frame + 2 masks"
+echo "  4. Click 'Sync Vault' in the left ribbon (puzzle icon) → the frame is"
+echo "     added as a stock Anki Image Occlusion note (2 cloze cards)"
+echo "  5. Edit the drawing (drag masks) or the '## Note Fields' section below,"
+echo "     then Sync again → the note updates in place, ID line survives saves"
+echo "  6. Check the Anki window for the imported image + masked cards"
+echo "  7. Close Obsidian to stop the container"
 echo "=============================================================="
 echo ""
 

@@ -1,5 +1,6 @@
 import { FIELDS_DICT } from './field-interface'
 import { AnkiConnectNote } from './note-interface'
+import { IOFrameRecord, IOSyncSettings } from '../io'
 
 export interface PluginSettings {
 	CUSTOM_REGEXPS: Record<string, string>,
@@ -15,7 +16,8 @@ export interface PluginSettings {
 		"Target Deck Line": string,
 		"File Tags Line": string,
 		"Delete Note Line": string,
-		"Frozen Fields Line": string
+		"Frozen Fields Line": string,
+		"Hide All Line": string
 	},
 	Defaults: {
 		"Scan Directory": string,
@@ -54,6 +56,8 @@ export interface FileData {
 	comment: boolean
 	add_context: boolean
 	add_obs_tags: boolean
+	io_frame_records: Record<string, IOFrameRecord>
+	io_settings: IOSyncSettings
 }
 
 export interface ParsedSettings extends FileData {

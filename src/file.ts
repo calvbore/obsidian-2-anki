@@ -3,12 +3,16 @@
 import { FROZEN_FIELDS_DICT } from './interfaces/field-interface'
 import { AnkiConnectNote, AnkiConnectNoteAndID } from './interfaces/note-interface'
 import { FileData } from './interfaces/settings-interface'
-import { Note, InlineNote, RegexNote, CLOZE_ERROR, NOTE_TYPE_ERROR, TAG_SEP, ID_REGEXP_STR, TAG_REGEXP_STR, parseTagString } from './note'
+import { Note, InlineNote, RegexNote, CLOZE_ERROR, NOTE_TYPE_ERROR, TAG_SEP, ID_REGEXP_STR, TAG_REGEXP_STR, parseTagString, OBS_TAG_REGEXP } from './note'
 import { Md5 } from 'ts-md5/dist/md5';
 import * as AnkiConnect from './anki'
 import * as c from './constants'
 import { FormatConverter } from './format'
-import { CachedMetadata, HeadingCache } from 'obsidian'
+import { App, CachedMetadata, HeadingCache } from 'obsidian'
+import { bytesToBase64 } from 'byte-base64'
+import * as excalidraw from './excalidraw'
+import * as excalidrawsvg from './excalidraw-svg'
+import * as io from './io'
 
 const double_regexp: RegExp = /(?:\r\n|\r|\n)((?:\r\n|\r|\n)(?:<!--)?ID: \d+)/g
 
@@ -69,14 +73,13 @@ function* findignore(pattern: RegExp, text: string, ignore_spans: Array<[number,
 	}
 }
 
-abstract class AbstractFile {
+export abstract class AbstractFile {
     file: string
     path: string
     url: string
     original_file: string
     data: FileData
     file_cache: CachedMetadata
-
     frozen_fields_dict: FROZEN_FIELDS_DICT
     target_deck: string
     global_tags: string
@@ -90,6 +93,7 @@ abstract class AbstractFile {
     note_ids: Array<number | null>
     card_ids: number[]
     tags: string[]
+    io_skip_reasons: string[] = []
 
     formatter: FormatConverter
 
@@ -247,6 +251,10 @@ abstract class AbstractFile {
             )
         }
         return AnkiConnect.multi(actions)
+    }
+
+    getMedia(): { filename: string; data: string }[] {
+        return []
     }
 
 }
@@ -465,5 +473,357 @@ export class AllFile extends AbstractFile {
         )
         this.file = string_insert(this.file, normal_inserts.concat(inline_inserts).concat(regex_inserts))
         this.fix_newline_ids()
+    }
+}
+
+export class IOFile extends AbstractFile {
+    app: App
+    io_config: io.IOConfig
+    delete_word: string
+    frozen_word: string
+    io_media: { filename: string; data: string }[]
+    normal_id_indexes: number[]
+    io_add_frame_keys: string[]
+    io_add_frame_hashes: string[]
+    delete_spans: [number, number][]
+
+    constructor(file_contents: string, path: string, url: string, data: FileData, file_cache: CachedMetadata, app: App) {
+        super(file_contents, path, url, data, file_cache)
+        this.app = app
+        const ioSettings: io.IOSyncSettings | undefined = data.io_settings
+        this.io_config = ioSettings ? {
+            hideAllKey: ioSettings.hideAllKey
+        } : io.defaultIOConfig()
+        this.delete_word = ioSettings ? ioSettings.deleteWord : "DELETE"
+        this.frozen_word = ioSettings ? ioSettings.frozenWord : "FROZEN"
+        this.io_media = []
+        this.normal_id_indexes = []
+        this.io_add_frame_keys = []
+        this.io_add_frame_hashes = []
+        this.delete_spans = []
+    }
+
+    isIOFile(): boolean {
+        return true
+    }
+
+    ioSkip(reason: string): void {
+        const line = "Image Occlusion (" + this.path + "): " + reason
+        console.warn(line)
+        this.io_skip_reasons.push(line)
+    }
+
+    setup_target_deck() {
+        const frontmatter = this.file_cache.frontmatter
+        const deck = frontmatter && frontmatter["deck"]
+        this.target_deck = typeof deck === "string" && deck ? deck : this.data.template["deckName"]
+    }
+
+    getMedia(): { filename: string; data: string }[] {
+        return this.io_media
+    }
+
+    async readImageBytes(
+        drawing: excalidraw.ParsedDrawing,
+        image: excalidraw.ExcalidrawElement
+    ): Promise<{ data: string; mimeType: string } | null> {
+        const fileId: string = image && (image as any).fileId ? (image as any).fileId : ""
+        if (!fileId) {
+            return null
+        }
+        const vaultPath: string | null = io.embeddedFileVaultPath(drawing, fileId)
+        if (vaultPath) {
+            try {
+                const dataFile = this.app.metadataCache.getFirstLinkpathDest(vaultPath, this.path)
+                if (!dataFile) {
+                    console.warn("Couldn't locate excalidraw image ", vaultPath, " in file ", this.path)
+                    return null
+                }
+                const arrayBuffer = await this.app.vault.readBinary(dataFile)
+                const bytes = new Uint8Array(arrayBuffer)
+                const data: string = bytesToBase64(bytes)
+                const mimeType = dataFile.extension === "jpg" || dataFile.extension === "jpeg" ? "image/jpeg"
+                    : dataFile.extension === "png" ? "image/png"
+                    : dataFile.extension === "gif" ? "image/gif"
+                    : dataFile.extension === "webp" ? "image/webp"
+                    : dataFile.extension === "svg" ? "image/svg+xml"
+                    : "image/png"
+                return { data, mimeType }
+            } catch (e) {
+                console.warn("Failed to read excalidraw image ", vaultPath, e)
+                return null
+            }
+        }
+        const fileData: excalidraw.ExcalidrawFileData | undefined = drawing.files[fileId]
+        if (fileData && fileData.dataURL) {
+            const comma: number = fileData.dataURL.indexOf(",")
+            const data: string = comma >= 0 ? fileData.dataURL.slice(comma + 1) : fileData.dataURL
+            const mimeType: string = fileData.mimeType || "image/png"
+            return { data, mimeType }
+        }
+        // Fall back to Excalidraw 2.12.x's attachment convention: the file is a
+        // vault file named `<fileId>.<ext>` (no `## Embedded Files` section).
+        const attachment = this.app.vault.getFiles()
+            .find(file => file.name.startsWith(fileId + "."))
+        if (attachment) {
+            try {
+                const arrayBuffer = await this.app.vault.readBinary(attachment)
+                const bytes = new Uint8Array(arrayBuffer)
+                const data: string = bytesToBase64(bytes)
+                const mimeType = attachment.extension === "jpg" || attachment.extension === "jpeg" ? "image/jpeg"
+                    : attachment.extension === "png" ? "image/png"
+                    : attachment.extension === "gif" ? "image/gif"
+                    : attachment.extension === "webp" ? "image/webp"
+                    : attachment.extension === "svg" ? "image/svg+xml"
+                    : "image/png"
+                return { data, mimeType }
+            } catch (e) {
+                console.warn("Failed to read excalidraw image attachment ", attachment.path, e)
+                return null
+            }
+        }
+        return null
+    }
+
+    async scanFile() {
+        this.setup_target_deck()
+        this.setup_global_tags()
+        this.notes_to_add = []
+        this.notes_to_edit = []
+        this.notes_to_delete = []
+        this.id_indexes = []
+        this.normal_id_indexes = []
+        this.io_add_frame_keys = []
+        this.io_add_frame_hashes = []
+        this.io_media = []
+        this.delete_spans = []
+        this.io_skip_reasons = []
+        const drawing: excalidraw.ParsedDrawing | null = excalidraw.parseDrawing(this.file)
+        if (!drawing) {
+            this.all_notes_to_add = []
+            return
+        }
+        const bodyInfo = excalidraw.findBackOfNote(this.file)
+        const frames = io.occlusionFrames(drawing)
+        const frameElements = drawing.elements.filter(e => !e.isDeleted && e.type === "frame")
+        if (frames.length === 0 && frameElements.length > 0) {
+            const names = frameElements.map(f => JSON.stringify(f.name || "")).join(", ")
+            this.ioSkip(`file has ${frameElements.length} Excalidraw frame(s) but none titled "${io.IO_FRAME_TITLE}" (frame names: ${names}); rename a frame to "${io.IO_FRAME_TITLE}" to sync it`)
+        }
+        const fieldNames: string[] = this.data.fields_dict["Image Occlusion"] || []
+        if (fieldNames.length < io.IO_FIELD_COUNT) {
+            // The section field keys are derived from the note type; without a
+            // complete model there is nothing to derive from (mirrors the guard
+            // in buildOcclusionNote).
+            this.ioSkip(`file skipped: Anki's "${io.IO_FRAME_TITLE}" note type is missing or has fewer than ${io.IO_FIELD_COUNT} fields; cannot derive the section field keys (is Anki 23.10+ connected?)`)
+            this.all_notes_to_add = []
+            return
+        }
+        const fieldKeys: io.IOFieldKeys = io.ioFieldKeys(fieldNames)
+        const deleteWord: string = this.delete_word
+        const frozenWord: string = this.frozen_word
+        const currentFrameIds: string[] = []
+        for (let frame of frames) {
+            currentFrameIds.push(frame.id)
+            const recordKey: string = this.path + "::" + frame.id
+            const record: io.IOFrameRecord = this.data.io_frame_records[recordKey] || {
+                maskOrdinals: {},
+                noteId: null,
+                lastHash: null
+            }
+            const link: string | null = io.elementLink(drawing, frame.id)
+            const section = io.findSection(this.file, link, bodyInfo)
+            if (!section) {
+                this.ioSkip(`frame "${frame.id}" skipped: ${link ? `element link "${link}" does not resolve to a back-of-note heading` : "has no element link to a back-of-note section"}; add/check the element link (e.g. \`${frame.id}: [[#Section Name]]\`) pointing to a "## " section above "# Excalidraw Data"`)
+                continue
+            }
+            const sectionParsed = io.parseSection(section.text, fieldKeys, this.io_config, deleteWord, frozenWord)
+            const idLineOffset: number = section.start + section.text.replace(/\s+$/, "").length
+            const masks: io.IOMask[] = []
+            for (let maskElement of io.frameMasks(drawing, frame)) {
+                const geometry = io.maskGeometry(maskElement, frame)
+                if (!geometry) {
+                    continue
+                }
+                masks.push({
+                    elementId: maskElement.id,
+                    type: maskElement.type === "ellipse" ? "ellipse" : "rectangle",
+                    ordinal: 0,
+                    left: geometry.left,
+                    top: geometry.top,
+                    width: geometry.width,
+                    height: geometry.height,
+                    rx: geometry.rx,
+                    ry: geometry.ry,
+                    fill: geometry.fill
+                })
+            }
+            const maskOrdinals: Record<string, number> = io.assignOrdinals(
+                masks.map(mask => mask.elementId),
+                record
+            )
+            for (let mask of masks) {
+                mask.ordinal = maskOrdinals[mask.elementId]
+            }
+            // Compose the card's picture: the frame's non-mask objects as a
+            // deterministic SVG (image bytes ride along as data: URIs).
+            const objects: excalidraw.ExcalidrawElement[] = io.frameRenderObjects(drawing, frame, masks)
+            const imageData: Record<string, excalidrawsvg.ImageData> = {}
+            for (let objectEl of objects) {
+                if (objectEl.type === "image") {
+                    const bytes = await this.readImageBytes(drawing, objectEl)
+                    if (bytes) {
+                        imageData[objectEl.id] = { mimeType: bytes.mimeType, data: bytes.data }
+                    }
+                }
+            }
+            const svg: string = excalidrawsvg.renderSceneSvg(frame, objects, imageData)
+            const svgFilename: string = io.mediaFilename(svg, "image/svg+xml")
+            let header = sectionParsed.fieldValues[fieldKeys.headerKey] || ""
+            let backExtra = sectionParsed.fieldValues[fieldKeys.backExtraKey] || ""
+            let comments = sectionParsed.fieldValues[fieldKeys.commentsKey] || ""
+            const hideAll = sectionParsed.hideAll
+            // Tag parity (§14): the frame's note tags = the section's `Tags:`
+            // line(s), plus (TS plugin only, when Add Obsidian Tags is enabled)
+            // Obsidian `#tag`s stripped out of the Header/Back Extra/Comments
+            // values. Never applied to the synthetic Occlusion field (it would
+            // mint bogus tags from `:fill=#…` geometry and corrupt the cloze).
+            const noteTags: string[] = sectionParsed.tags.slice()
+            if (this.data.add_obs_tags) {
+                for (let value of [header, backExtra, comments]) {
+                    for (let match of value.matchAll(OBS_TAG_REGEXP)) {
+                        noteTags.push(match[1])
+                    }
+                }
+                header = header.replace(OBS_TAG_REGEXP, "").trim()
+                backExtra = backExtra.replace(OBS_TAG_REGEXP, "").trim()
+                comments = comments.replace(OBS_TAG_REGEXP, "").trim()
+            }
+            // The effective tag string feeds the frame hash so a Tags:/#tag
+            // edit alone re-syncs. `[global_tags, ...noteTags]` mirrors vanilla
+            // ADD (template + noteTags + global_tags) and EDIT (noteTags +
+            // global_tags) tag sets — concatenated, not deduped.
+            const effectiveTags = [this.global_tags, ...noteTags].filter(t => t).join(TAG_SEP)
+            const frameHash = io.frameHash(
+                masks,
+                svg,
+                { [fieldKeys.headerKey]: header, [fieldKeys.backExtraKey]: backExtra, [fieldKeys.commentsKey]: comments, [this.io_config.hideAllKey]: hideAll ? "true" : "false" },
+                hideAll,
+                this.target_deck,
+                effectiveTags
+            )
+            const identifier: number | null = sectionParsed.identifier
+            if (!this.data.io_frame_records[recordKey]) {
+                this.data.io_frame_records[recordKey] = record
+            }
+
+            if (sectionParsed.deleteNote && identifier !== null) {
+                this.notes_to_delete.push(identifier)
+                this.delete_spans.push([section.start, section.end])
+                record.noteId = null
+                record.lastHash = null
+                continue
+            }
+            if (sectionParsed.frozen) {
+                continue
+            }
+            if (identifier === null) {
+                const note = io.buildOcclusionNote(
+                    fieldNames,
+                    this.data.template,
+                    masks,
+                    svgFilename,
+                    header,
+                    backExtra,
+                    comments,
+                    hideAll
+                )
+                if (!note) {
+                    this.ioSkip(`frame "${frame.id}" skipped: ${masks.length === 0 ? "no usable occlusion mask (add a filled rectangle/ellipse, opacity > 0, both dimensions ≥ 5px, overlapping the frame)" : "could not build the note (is Anki's \"Image Occlusion\" model available?)"}`)
+                    continue
+                }
+                note["deckName"] = this.target_deck
+                note["tags"].push(...noteTags)
+                note["tags"].push(...this.global_tags.split(TAG_SEP).filter(t => t))
+                this.notes_to_add.push(note)
+                this.id_indexes.push(idLineOffset)
+                this.io_add_frame_keys.push(recordKey)
+                this.io_add_frame_hashes.push(frameHash)
+                this.io_media.push({ filename: svgFilename, data: bytesToBase64(new TextEncoder().encode(svg)) })
+                continue
+            }
+            if (!this.data.EXISTING_IDS.includes(identifier)) {
+                this.ioSkip(`frame "${frame.id}" skipped: section references note ID ${identifier} which does not exist in Anki`)
+                continue
+            }
+            if (frameHash === record.lastHash && record.noteId === identifier) {
+                // Nothing changed in this frame -- skip the no-op update.
+                continue
+            }
+            const note = io.buildOcclusionNote(
+                fieldNames,
+                this.data.template,
+                masks,
+                svgFilename,
+                header,
+                backExtra,
+                comments,
+                hideAll
+            )
+            if (!note) {
+                this.ioSkip(`frame "${frame.id}" skipped: ${masks.length === 0 ? "no usable occlusion mask (add a filled rectangle/ellipse, opacity > 0, both dimensions ≥ 5px, overlapping the frame)" : "could not build the note (is Anki's \"Image Occlusion\" model available?)"}`)
+                continue
+            }
+            note["deckName"] = this.target_deck
+            // EDIT: Anki's note already carries the file tags (from the ADD
+            // path); the clear/add-tags requests re-apply them. Here only the
+            // section's note tags are (re)merged so a gained/lost `Tags:` line
+            // propagates even without a field change.
+            note["tags"] = note["tags"].concat(noteTags)
+            const noteWithId: AnkiConnectNoteAndID = { note, identifier }
+            this.notes_to_edit.push(noteWithId)
+            this.io_media.push({ filename: svgFilename, data: bytesToBase64(new TextEncoder().encode(svg)) })
+            record.lastHash = frameHash
+        }
+        // Drop records for frames that no longer exist in the drawing.
+        for (let recordKey of Object.keys(this.data.io_frame_records)) {
+            if (recordKey.startsWith(this.path + "::")) {
+                const frameId: string = recordKey.slice(this.path.length + 2)
+                if (!currentFrameIds.includes(frameId)) {
+                    delete this.data.io_frame_records[recordKey]
+                }
+            }
+        }
+        this.all_notes_to_add = this.notes_to_add
+    }
+
+    writeIDs() {
+        let inserts: [number, string][] = []
+        for (let index in this.id_indexes) {
+            const i = parseInt(index)
+            const identifier: number | null = this.note_ids[i]
+            if (identifier) {
+                inserts.push([this.id_indexes[i], "\n" + id_to_str(identifier, false, this.data.comment)])
+                const recordKey: string | undefined = this.io_add_frame_keys[i]
+                if (recordKey) {
+                    const record = this.data.io_frame_records[recordKey]
+                    if (record) {
+                        record.noteId = identifier
+                        record.lastHash = this.io_add_frame_hashes[i]
+                    }
+                }
+            }
+        }
+        this.file = string_insert(this.file, inserts)
+    }
+
+    removeEmpties() {
+        // Remove deleted frame sections, largest offset first so earlier
+        // offsets stay valid.
+        const spans = this.delete_spans.slice().sort((a, b) => b[0] - a[0])
+        for (let [start, end] of spans) {
+            this.file = this.file.slice(0, start) + this.file.slice(end)
+        }
+        this.delete_spans = []
     }
 }

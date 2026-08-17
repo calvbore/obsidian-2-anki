@@ -1,7 +1,7 @@
 /*Class for managing a list of files, and their Anki requests.*/
 import { ParsedSettings, FileData } from './interfaces/settings-interface'
 import { App, TFile, TFolder, TAbstractFile, CachedMetadata, FileSystemAdapter, Notice } from 'obsidian'
-import { AllFile } from './file'
+import { AbstractFile, AllFile, IOFile } from './file'
 import * as AnkiConnect from './anki'
 import { basename } from 'path'
 import multimatch from "multimatch"
@@ -50,12 +50,22 @@ function difference<T>(setA: Set<T>, setB: Set<T>): Set<T> {
     return _difference
 }
 
+/**Standalone marker check (mirrors `FileManager.hasIOMarker`). Reads the
+metadata cache, so callers must ensure the cache is fresh — see
+`MyPlugin.refreshMetadataCache` after a `vault.modify` of a marker edit.*/
+export function fileHasIOMarker(app: App, file: TFile): boolean {
+    const cache: CachedMetadata = app.metadataCache.getCache(file.path)
+    const frontmatter = cache && cache.frontmatter
+    const marker = frontmatter && frontmatter["anki-occlusion"]
+    return marker === true || marker === "true"
+}
+
 
 export class FileManager {
     app: App
     data: ParsedSettings
     files: TFile[]
-    ownFiles: Array<AllFile>
+    ownFiles: Array<AbstractFile>
     file_hashes: Record<string, string>
     requests_1_result: any
     added_media_set: Set<string>
@@ -79,7 +89,18 @@ export class FileManager {
         ignoredFiles = multimatch(files.map(file => file.path), data.ignored_file_globs)
 
         let notIgnoredFiles = files.filter(file => !ignoredFiles.contains(file.path))
+        // Excalidraw drawings with the `anki-occlusion` marker opt in even when
+        // the `**/*.excalidraw.md` ignore glob matches them.
+        for (let file of files) {
+            if (file.name.endsWith('.excalidraw.md') && !notIgnoredFiles.contains(file) && this.hasIOMarker(file)) {
+                notIgnoredFiles.push(file)
+            }
+        }
         return notIgnoredFiles;
+    }
+
+    hasIOMarker(file: TFile): boolean {
+        return fileHasIOMarker(this.app, file)
     }
 
     getFolderPathList(file: TFile): TFolder[] {
@@ -130,6 +151,9 @@ export class FileManager {
         result.EMPTY_REGEXP = this.data.EMPTY_REGEXP
         result.template.deckName = this.getDefaultDeck(file, folder_path_list)
         result.template.tags = this.getDefaultTags(file, folder_path_list)
+        // Shared references (must not be deep-copied)
+        result.io_frame_records = this.data.io_frame_records
+        result.io_settings = this.data.io_settings
         return result
     }
 
@@ -138,6 +162,19 @@ export class FileManager {
             const content: string = await this.app.vault.read(file)
             const cache: CachedMetadata = this.app.metadataCache.getCache(file.path)
             const file_data = this.dataToFileData(file)
+            if (file.name.endsWith('.excalidraw.md')) {
+                this.ownFiles.push(
+                    new IOFile(
+                        content,
+                        file.path,
+                        this.data.add_file_link ? this.getUrl(file) : "",
+                        file_data,
+                        cache,
+                        this.app
+                    )
+                )
+                continue
+            }
             this.ownFiles.push(
                 new AllFile(
                     content,
@@ -152,7 +189,7 @@ export class FileManager {
 
     async initialiseFiles() {
         await this.genAllFiles()
-        let files_changed: Array<AllFile> = []
+        let files_changed: Array<AbstractFile> = []
         let obfiles_changed: TFile[] = []
         for (let index in this.ownFiles) {
             const i = parseInt(index)
@@ -160,7 +197,7 @@ export class FileManager {
             if (!(this.file_hashes.hasOwnProperty(file.path) && file.getHash() === this.file_hashes[file.path])) {
                 //Indicates it's changed or new
                 console.info("Scanning ", file.path, "as it's changed or new.")
-                file.scanFile()
+                await file.scanFile()
                 files_changed.push(file)
                 obfiles_changed.push(this.files[i])
             }
@@ -224,6 +261,16 @@ export class FileManager {
                         )
                     )
                 }
+            }
+        }
+        for (let file of this.ownFiles) {
+            for (let media of file.getMedia()) {
+                if (this.added_media_set.has(media.filename)) {
+                    continue
+                }
+                this.added_media_set.add(media.filename)
+                console.log("Adding Image Occlusion media file: ", media.filename)
+                temp.push(AnkiConnect.storeMediaFile(media.filename, media.data))
             }
         }
         requests.push(AnkiConnect.multi(temp))

@@ -3,8 +3,9 @@ import { App } from 'obsidian'
 import * as AnkiConnect from './anki'
 import { ID_REGEXP_STR } from './note'
 import { escapeRegex } from './constants'
+import { IOSyncSettings, IOFrameRecord } from './io'
 
-export async function settingToData(app: App, settings: PluginSettings, fields_dict: Record<string, string[]>): Promise<ParsedSettings> {
+export async function settingToData(app: App, settings: PluginSettings, fields_dict: Record<string, string[]>, io_frame_records: Record<string, IOFrameRecord>): Promise<ParsedSettings> {
     let result: ParsedSettings = <ParsedSettings>{}
 
     //Some processing required
@@ -26,6 +27,17 @@ export async function settingToData(app: App, settings: PluginSettings, fields_d
         tags: [settings.Defaults.Tag]
     }
     result.EXISTING_IDS = await AnkiConnect.invoke('findNotes', {query: ""}) as number[]
+
+    //Image Occlusion sync settings: only the syntax words are configurable
+    //(the section field keys are derived from the note type at scan time, and
+    //the frame title is hardcoded).
+    const ioSettings: IOSyncSettings = {
+        hideAllKey: settings.Syntax["Hide All Line"] || "Hide all",
+        deleteWord: settings.Syntax["Delete Note Line"] || "DELETE",
+        frozenWord: settings.Syntax["Frozen Fields Line"] || "FROZEN"
+    }
+    result.io_settings = ioSettings
+    result.io_frame_records = io_frame_records
 
     //RegExp section
     result.FROZEN_REGEXP = new RegExp(escapeRegex(settings.Syntax["Frozen Fields Line"]) + String.raw` - (.*?):\n((?:[^\n][\n]?)+)`, "g")

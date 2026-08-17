@@ -1,0 +1,55 @@
+---
+excalidraw-plugin: parsed
+anki-occlusion: true
+deck: Default
+---
+
+# Image Occlusion demo
+
+This is an [[Excalidraw]] drawing with one **`Image Occlusion`** frame. The plugin turns it into a stock Anki *Image Occlusion* note on the next vault sync.
+
+Try this in the sandbox:
+
+1. Open this preview, then switch to the **Excalidraw** tab (or use the ribbon icon) to edit the canvas.
+2. Drag the red rectangle / blue ellipse masks over the image, or edit the note fields below.
+3. Run **Sync Vault** — the note is created (or updated in place) in Anki.
+4. A `<!--ID: ...-->` comment appears in the section below; it survives every Excalidraw save.
+
+## Note Fields
+
+Header: Label the renal arteries
+Back Extra: Compare with a clinical atlas
+Comments: Sandbox demo · first sync adds this IO note
+Hide all: false
+
+
+# Excalidraw Data
+
+## Text Elements
+## Element Links
+frame1: [[#Note Fields]]
+
+%%
+## Drawing
+```compressed-json
+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
+```
+%%

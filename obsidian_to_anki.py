@@ -2,6 +2,7 @@
 
 import re
 import json
+import glob
 import urllib.request
 import configparser
 import os
@@ -16,6 +17,7 @@ import socket
 import subprocess
 import logging
 import hashlib
+import obsidian_io as IO
 try:
     import gooey
     GOOEY = True
@@ -810,6 +812,9 @@ class Config:
         config["Syntax"].setdefault(
             "Frozen Fields Line", "FROZEN"
         )
+        config["Syntax"].setdefault(
+            "Hide All Line", "Hide all"
+        )
 
     @staticmethod
     def setup_defaults(config):
@@ -920,6 +925,15 @@ class Config:
         CONFIG_DATA["Add file link"] = config.getboolean(
             "Obsidian", "Add file link"
         )
+        CONFIG_DATA["IO_HIDE_ALL_WORD"] = config.get(
+            "Syntax", "Hide All Line", fallback="Hide all"
+        )
+        CONFIG_DATA["IO_DELETE_WORD"] = config.get(
+            "Syntax", "Delete Note Line", fallback="DELETE"
+        )
+        CONFIG_DATA["IO_FROZEN_WORD"] = config.get(
+            "Syntax", "Frozen Fields Line", fallback="FROZEN"
+        )
 
     def load_config():
         """Load from an existing config file (assuming it exists)."""
@@ -954,6 +968,7 @@ class Data:
             data = json.load(f)
         App.ADDED_MEDIA = data.get("Added Media", list())
         App.FILE_HASHES = data.get("File Hashes", dict())
+        App.IO_FRAME_RECORDS = data.get("IO Frame Records", dict())
 
 
 class App:
@@ -1077,7 +1092,8 @@ class App:
             Data.update_data_file(
                 {
                     "Added Media": App.ADDED_MEDIA,
-                    "File Hashes": App.FILE_HASHES
+                    "File Hashes": App.FILE_HASHES,
+                    "IO Frame Records": App.IO_FRAME_RECORDS
                 }
             )
         if no_args:
@@ -1697,6 +1713,341 @@ class RegexFile(File):
         )
 
 
+def parse_frontmatter(content):
+    """Minimal YAML-subset frontmatter parser returning a dict of str/bool/list."""
+    result = {}
+    if not content.startswith("---"):
+        return result
+    close = re.compile(r"^---[ \t]*$", re.M).search(content[3:])
+    if not close:
+        return result
+    fm = content[3:close.start() + 3]
+    current_key = None
+    for line in fm.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("- "):
+            item = stripped[2:].strip()
+            if current_key is not None:
+                result.setdefault(current_key, [])
+                if isinstance(result[current_key], list):
+                    result[current_key].append(item)
+            continue
+        colon = line.find(":")
+        if colon < 0:
+            continue
+        key = line[:colon].strip()
+        value = line[colon + 1:].strip()
+        if not key:
+            continue
+        current_key = key
+        if value == "":
+            result[key] = []
+            continue
+        if value.lower() in ("true", "false"):
+            result[key] = value.lower() == "true"
+        elif (value.startswith('"') and value.endswith('"')) or (
+            value.startswith("'") and value.endswith("'")
+        ):
+            result[key] = value[1:-1]
+        else:
+            result[key] = value
+    return result
+
+
+def io_marker_in_content(content):
+    """Whether a file opts in to Image Occlusion via `anki-occlusion: true`."""
+    return parse_frontmatter(content).get("anki-occlusion") is True
+
+
+def file_for_path(path, regex=False):
+    """Construct the right file class for a path, or None if it should be skipped."""
+    if path.endswith(".excalidraw.md"):
+        try:
+            with open(path, encoding="utf_8") as f:
+                content = f.read()
+        except OSError:
+            return None
+        if io_marker_in_content(content):
+            return IOFile(path)
+        return None
+    return (RegexFile if regex else File)(path)
+
+
+class IOFile(File):
+    """File subclass for Excalidraw Image Occlusion drawings."""
+
+    def __init__(self, filepath):
+        super().__init__(filepath)
+        self.io_config = {
+            "hideAllKey": CONFIG_DATA.get("IO_HIDE_ALL_WORD", "Hide all"),
+        }
+        self.delete_word = CONFIG_DATA.get("IO_DELETE_WORD", "DELETE")
+        self.frozen_word = CONFIG_DATA.get("IO_FROZEN_WORD", "FROZEN")
+        self.io_add_frame_keys = list()
+        self.io_add_frame_hashes = list()
+        self.delete_spans = list()
+
+    def setup_target_deck(self):
+        frontmatter = parse_frontmatter(self.file)
+        deck = frontmatter.get("deck")
+        if isinstance(deck, str) and deck:
+            self.target_deck = deck
+        else:
+            self.target_deck = NOTE_DICT_TEMPLATE["deckName"]
+
+    def read_image_bytes(self, drawing, image):
+        """Resolve an image element's bytes (base64 payload) + mime type."""
+        file_id = str(image.get("fileId") or "")
+        if not file_id:
+            return None
+        vault_path = IO.embedded_file_vault_path(drawing, file_id)
+        if vault_path:
+            candidate = os.path.join(os.path.dirname(self.path), vault_path)
+            if not os.path.exists(candidate):
+                candidate = vault_path
+            if not os.path.exists(candidate):
+                print(
+                    "Couldn't locate excalidraw image", vault_path,
+                    "in file", self.path
+                )
+                return None
+            data = file_encode(candidate)
+            ext = os.path.splitext(vault_path)[1].lower()
+            mime_type = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".svg": "image/svg+xml",
+            }.get(ext, "image/png")
+            return {"data": data, "mimeType": mime_type}
+        file_data = drawing["files"].get(file_id)
+        if file_data and file_data.get("dataURL"):
+            data_url = file_data["dataURL"]
+            comma = data_url.find(",")
+            data = data_url[comma + 1:] if comma >= 0 else data_url
+            mime_type = file_data.get("mimeType") or "image/png"
+            return {"data": data, "mimeType": mime_type}
+        # Fall back to Excalidraw 2.12.x's attachment convention: a vault file
+        # named `<fileId>.<ext>` next to the drawing (no `## Embedded Files`).
+        matches = glob.glob(os.path.join(os.path.dirname(self.path), file_id + ".*"))
+        if not matches:
+            matches = glob.glob(file_id + ".*")
+        if matches:
+            candidate = matches[0]
+            data = file_encode(candidate)
+            ext = os.path.splitext(candidate)[1].lower()
+            mime_type = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp",
+                ".svg": "image/svg+xml",
+            }.get(ext, "image/png")
+            return {"data": data, "mimeType": mime_type}
+        return None
+
+    def scan_file(self):
+        """Sort Image Occlusion frames from file into adding vs editing."""
+        logging.info("Scanning file " + self.filename + " for Image Occlusion frames...")
+        self.setup_target_deck()
+        self.setup_global_tags()
+        self.notes_to_add = list()
+        self.id_indexes = list()
+        self.io_add_frame_keys = list()
+        self.io_add_frame_hashes = list()
+        self.notes_to_edit = list()
+        self.notes_to_delete = list()
+        self.delete_spans = list()
+        drawing = IO.parse_drawing(self.file)
+        if not drawing:
+            self.all_notes_to_add = self.notes_to_add
+            return
+        body_info = IO.find_back_of_note(self.file)
+        frames = IO.occlusion_frames(drawing)
+        field_names = App.FIELDS_DICT.get("Image Occlusion", [])
+        if len(field_names) < IO.IO_FIELD_COUNT:
+            print(
+                "Image Occlusion file", self.path,
+                "skipped: Anki's \"Image Occlusion\" note type is missing or has",
+                "fewer than", IO.IO_FIELD_COUNT, "fields; cannot derive the section",
+                "field keys (is Anki 23.10+ connected?)",
+            )
+            self.all_notes_to_add = self.notes_to_add
+            return
+        field_keys = IO.io_field_keys(field_names)
+        current_frame_ids = list()
+        for frame in frames:
+            current_frame_ids.append(frame["id"])
+            record_key = self.path + "::" + frame["id"]
+            record = App.IO_FRAME_RECORDS.get(
+                record_key, {"maskOrdinals": {}, "noteId": None, "lastHash": None}
+            )
+            link = IO.element_link(drawing, frame["id"])
+            section = IO.find_section(self.file, link, body_info)
+            if section is None:
+                print(
+                    "Image Occlusion frame", frame["id"], "in", self.path,
+                    "has no linked back-of-note section; add an element link to",
+                    'a "## " section (e.g. `' + frame["id"] + ': [[#Section Name]]`)',
+                    "to sync it. Skipping.",
+                )
+                continue
+            parsed = IO.parse_section(
+                section["text"], field_keys, self.io_config, self.delete_word, self.frozen_word
+            )
+            id_line_offset = section["start"] + len(section["text"].rstrip())
+            masks = list()
+            for mask_element in IO.frame_masks(drawing, frame):
+                geometry = IO.mask_geometry(mask_element, frame)
+                if not geometry:
+                    continue
+                masks.append({
+                    "elementId": mask_element["id"],
+                    "type": "ellipse" if mask_element.get("type") == "ellipse" else "rectangle",
+                    "ordinal": 0,
+                    "left": geometry["left"],
+                    "top": geometry["top"],
+                    "width": geometry["width"],
+                    "height": geometry["height"],
+                    "rx": geometry["rx"],
+                    "ry": geometry["ry"],
+                    "fill": geometry["fill"],
+                })
+            mask_ordinals = IO.assign_ordinals(
+                [mask["elementId"] for mask in masks], record
+            )
+            for mask in masks:
+                mask["ordinal"] = mask_ordinals[mask["elementId"]]
+            # Compose the card's picture: the frame's non-mask objects as a
+            # deterministic SVG (image bytes ride along as data: URIs).
+            objects = IO.frame_render_objects(drawing, frame, masks)
+            image_data = {}
+            for object_el in objects:
+                if object_el.get("type") == "image":
+                    image_bytes = self.read_image_bytes(drawing, object_el)
+                    if image_bytes:
+                        image_data[object_el["id"]] = image_bytes
+            svg = IO.render_scene_svg(frame, objects, image_data)
+            svg_filename = IO.media_filename(svg, "image/svg+xml")
+            header = parsed["fieldValues"].get(field_keys["headerKey"], "") or ""
+            back_extra = parsed["fieldValues"].get(field_keys["backExtraKey"], "") or ""
+            comments = parsed["fieldValues"].get(field_keys["commentsKey"], "") or ""
+            hide_all = parsed["hideAll"]
+            # Tag parity (§14): note tags = section `Tags:` + global FILE TAGS
+            # (the effective string feeds the frame hash so a Tags: edit alone
+            # re-syncs).
+            effective_tags = " ".join(
+                filter(None, [self.global_tags] + parsed["tags"])
+            )
+            frame_hash = IO.frame_hash(
+                masks,
+                svg,
+                {
+                    field_keys["headerKey"]: header,
+                    field_keys["backExtraKey"]: back_extra,
+                    field_keys["commentsKey"]: comments,
+                    self.io_config["hideAllKey"]: "true" if hide_all else "false",
+                },
+                hide_all,
+                self.target_deck,
+                effective_tags,
+            )
+            identifier = parsed["identifier"]
+            App.IO_FRAME_RECORDS.setdefault(record_key, record)
+
+            if parsed["delete"] and identifier is not None:
+                self.notes_to_delete.append(identifier)
+                self.delete_spans.append((section["start"], section["end"]))
+                record["noteId"] = None
+                record["lastHash"] = None
+                continue
+            if parsed["frozen"]:
+                continue
+            if identifier is None:
+                note = IO.build_occlusion_note(
+                    field_names, NOTE_DICT_TEMPLATE, masks,
+                    svg_filename, header, back_extra, comments, hide_all
+                )
+                if not note:
+                    print(
+                        "Couldn't build Image Occlusion note for frame",
+                        frame["id"], "in", self.path
+                    )
+                    continue
+                note["deckName"] = self.target_deck
+                note["tags"] = note["tags"] + parsed["tags"] + self.global_tags.split(TAG_SEP)
+                MEDIA[svg_filename] = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+                self.notes_to_add.append(note)
+                self.id_indexes.append(id_line_offset)
+                self.io_add_frame_keys.append(record_key)
+                self.io_add_frame_hashes.append(frame_hash)
+                continue
+            if identifier not in App.EXISTING_IDS:
+                print(
+                    "Warning! Note with id", identifier,
+                    "in file", self.path, "does not exist in Anki!"
+                )
+                continue
+            if frame_hash == record["lastHash"] and record["noteId"] == identifier:
+                # Nothing changed in this frame -- skip the no-op update.
+                continue
+            note = IO.build_occlusion_note(
+                field_names, NOTE_DICT_TEMPLATE, masks,
+                svg_filename, header, back_extra, comments, hide_all
+            )
+            if not note:
+                print(
+                    "Couldn't build Image Occlusion note for frame",
+                    frame["id"], "in", self.path
+                )
+                continue
+            note["deckName"] = self.target_deck
+            note["tags"] = note["tags"] + parsed["tags"]
+            MEDIA[svg_filename] = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+            self.notes_to_edit.append(Note_and_id(note=note, id=identifier))
+            record["lastHash"] = frame_hash
+        # Drop records for frames that no longer exist in the drawing.
+        for record_key in list(App.IO_FRAME_RECORDS.keys()):
+            if record_key.startswith(self.path + "::"):
+                frame_id = record_key[len(self.path) + 2:]
+                if frame_id not in current_frame_ids:
+                    del App.IO_FRAME_RECORDS[record_key]
+        self.all_notes_to_add = self.notes_to_add
+
+    def write_ids(self):
+        """Write the identifiers to self.file and record their note ids."""
+        logging.info("Writing new note IDs to file," + self.filename + "...")
+        inserts = list()
+        for i, id_position in enumerate(self.id_indexes):
+            if i >= len(self.note_ids) or self.note_ids[i] is None:
+                continue
+            identifier = self.note_ids[i]
+            inserts.append(
+                (
+                    id_position,
+                    "\n" + self.id_to_str(identifier, comment=CONFIG_DATA["Comment"]),
+                )
+            )
+            if i < len(self.io_add_frame_keys):
+                record_key = self.io_add_frame_keys[i]
+                if record_key in App.IO_FRAME_RECORDS:
+                    App.IO_FRAME_RECORDS[record_key]["noteId"] = identifier
+                    if i < len(self.io_add_frame_hashes):
+                        App.IO_FRAME_RECORDS[record_key]["lastHash"] = self.io_add_frame_hashes[i]
+        self.file = string_insert(self.file, inserts)
+
+    def remove_empties(self):
+        """Remove deleted frame sections, largest offset first."""
+        for start, end in sorted(self.delete_spans, key=lambda s: s[0], reverse=True):
+            self.file = self.file[:start] + self.file[end:]
+        self.delete_spans = list()
+
+
 class Directory:
     """Class for managing a directory of files at a time."""
 
@@ -1704,23 +2055,27 @@ class Directory:
         """Scan directory for files."""
         self.path = abspath
         self.parent = os.getcwd()
-        if regex:
-            self.file_class = RegexFile
-        else:
-            self.file_class = File
         os.chdir(self.path)
         if onefile:
             # Hence, just one file to do
-            self.files = [self.file_class(onefile)]
+            self.files = [
+                file
+                for file in [file_for_path(onefile, regex)]
+                if file is not None
+            ]
         else:
             with os.scandir() as it:
                 self.files = sorted(
                     [
-                        self.file_class(entry.path)
-                        for entry in it
-                        if entry.is_file() and os.path.splitext(
-                            entry.path
-                        )[1] in App.SUPPORTED_EXTS
+                        file
+                        for file in (
+                            file_for_path(entry.path, regex)
+                            for entry in it
+                            if entry.is_file() and os.path.splitext(
+                                entry.path
+                            )[1] in App.SUPPORTED_EXTS
+                        )
+                        if file is not None
                     ], key=lambda file: [
                         int(part) if part.isdigit() else part.lower()
                         for part in re.split(r'(\d+)', file.filename)]

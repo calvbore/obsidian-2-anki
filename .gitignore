@@ -277,6 +277,9 @@ Vagrantfile
 # Complied Plugin Outputs
 main.js
 
+# Sandbox downloads cache (Excalidraw plugin, avoided offline)
+.sandbox-cache/
+
 # Per-suite plugin copies (refreshed each run by prepare-wdio.sh; suite data.json IS tracked)
 # Suite vaults keep a tracked per-suite plugin config at data.json, but the manifest/styles
 # are build artifacts copied over the fresh vault by the spec template (overwrite:true).

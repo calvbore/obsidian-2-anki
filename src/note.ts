@@ -21,7 +21,7 @@ export function parseTagString(raw: string): string[] {
 
 export const ID_REGEXP_STR: string = String.raw`\n?(?:<!--)?(?:ID: (\d+).*)`
 export const TAG_REGEXP_STR: string = String.raw`(Tags: .*)`
-const OBS_TAG_REGEXP: RegExp = /#([\w-]+)/g
+export const OBS_TAG_REGEXP: RegExp = /#([\w-]+)/g
 
 const ANKI_CLOZE_REGEXP: RegExp = /{{c\d+::[\s\S]+?}}/
 export const CLOZE_ERROR: number = 42
